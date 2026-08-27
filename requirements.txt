@@ -4,5 +4,4 @@ python-dotenv
 psutil
 aiosqlite
 pydantic
-tenacity
-pillow
+TgCrypto          # இது முக்கியம்
