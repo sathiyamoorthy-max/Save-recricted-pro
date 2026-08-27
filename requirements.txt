@@ -4,4 +4,6 @@ python-dotenv
 psutil
 aiosqlite
 pydantic
-TgCrypto          # இது முக்கியம்
+TgCrypto
+Flask
+pillow
