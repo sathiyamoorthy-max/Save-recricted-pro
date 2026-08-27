@@ -1,0 +1,8 @@
+pyrogram==2.0.106
+pyleaves
+python-dotenv
+psutil
+aiosqlite
+pydantic
+tenacity
+pillow
