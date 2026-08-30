@@ -4,7 +4,6 @@ import re
 import json
 import shutil
 import asyncio
-import aiosqlite
 import psutil
 from time import time
 from datetime import datetime, timedelta
@@ -21,27 +20,22 @@ try:
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
-# ============================================================
-# 📦 INSTALL MISSING PACKAGES (Render Auto Install)
-# ============================================================
-# requirements.txt should have: pyrogram, pyleaves, python-dotenv, psutil, aiosqlite, Flask, TgCrypto, pillow
-
 from pyrogram import Client, filters
-from pyrogram.enums import ParseMode, ChatMemberStatus, ChatType
-from pyrogram.errors import FloodWait, PeerIdInvalid, BadRequest
-from pyrogram.types import (
-    Message, InlineKeyboardMarkup, InlineKeyboardButton,
-    InputMediaPhoto, InputMediaVideo, InputMediaDocument, InputMediaAudio, Voice
-)
+from pyrogram.enums import ParseMode
+from pyrogram.errors import FloodWait
+from pyrogram.types import InputMediaPhoto, InputMediaVideo, InputMediaDocument, InputMediaAudio
 from pyrogram.utils import get_channel_id
 from pyleaves import Leaves
 from dotenv import load_dotenv
 from flask import Flask
 
+# MongoDB Async Driver
+from motor.motor_asyncio import AsyncIOMotorClient
+
 load_dotenv("config.env")
 
 # ============================================================
-# 📝 LOGGER (Without external file)
+# 📝 LOGGER
 # ============================================================
 import logging
 from logging.handlers import RotatingFileHandler
@@ -66,12 +60,13 @@ def LOGGER(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 # ============================================================
-# ⚙️ CONFIG (All from Environment)
+# ⚙️ CONFIG
 # ============================================================
 API_ID = int(os.getenv("API_ID", 0))
 API_HASH = os.getenv("API_HASH", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 SESSION_STRINGS = [s.strip() for s in os.getenv("SESSION_STRINGS", "").split(",") if s.strip()]
+MONGO_URL = os.getenv("MONGO_URL", "") # NEW REQUIREMENT
 MAX_CONCURRENT = int(os.getenv("MAX_CONCURRENT", "3"))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "50"))
 FLOOD_SLEEP = int(os.getenv("FLOOD_SLEEP", "5"))
@@ -80,95 +75,70 @@ TRIAL_DAYS = int(os.getenv("TRIAL_DAYS", "7"))
 FORWARD_CHAT_IDS = [c.strip() for c in os.getenv("FORWARD_CHAT_IDS", "").split(",") if c.strip()]
 BOT_START_TIME = time()
 
-if not API_ID or not API_HASH or not BOT_TOKEN:
-    print("❌ API_ID, API_HASH, BOT_TOKEN are required!")
+if not API_ID or not API_HASH or not BOT_TOKEN or not MONGO_URL:
+    print("❌ API_ID, API_HASH, BOT_TOKEN, and MONGO_URL are required!")
     sys.exit(1)
 
 if not SESSION_STRINGS:
-    print("❌ SESSION_STRINGS is required! Generate one from @TgDevToolBot")
+    print("❌ SESSION_STRINGS is required!")
     sys.exit(1)
 
 # ============================================================
-# 🗄️ DATABASE (SQLite)
+# 🗄️ DATABASE (MongoDB - Cloud Persistent)
 # ============================================================
-DB_PATH = "bot_database.db"
-
-async def init_db():
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                username TEXT,
-                plan TEXT DEFAULT 'free',
-                trial_start DATETIME,
-                trial_end DATETIME,
-                premium_expiry DATETIME,
-                total_downloads INTEGER DEFAULT 0,
-                daily_downloads INTEGER DEFAULT 0,
-                last_download_date DATE
-            )
-        """)
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS clone_progress (
-                user_id INTEGER,
-                chat_id TEXT,
-                last_msg_id INTEGER,
-                total_msgs INTEGER,
-                status TEXT DEFAULT 'running',
-                updated_at DATETIME,
-                PRIMARY KEY (user_id, chat_id)
-            )
-        """)
-        await db.commit()
+db_client = AsyncIOMotorClient(MONGO_URL)
+db = db_client["media_bot_db"]
+users_col = db["users"]
+clone_col = db["clone_progress"]
 
 async def get_user(user_id: int) -> Optional[Dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-        row = await cur.fetchone()
-        return dict(row) if row else None
+    return await users_col.find_one({"user_id": user_id})
 
 async def create_user(user_id: int, username: str = ""):
-    trial_end = datetime.now() + timedelta(days=TRIAL_DAYS)
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT OR IGNORE INTO users (user_id, username, plan, trial_start, trial_end) VALUES (?, ?, 'free', ?, ?)",
-            (user_id, username, datetime.now(), trial_end)
-        )
-        await db.commit()
+    exists = await get_user(user_id)
+    if not exists:
+        trial_end = datetime.now() + timedelta(days=TRIAL_DAYS)
+        await users_col.insert_one({
+            "user_id": user_id,
+            "username": username,
+            "plan": "free",
+            "trial_start": datetime.now(),
+            "trial_end": trial_end,
+            "premium_expiry": None,
+            "total_downloads": 0,
+            "daily_downloads": 0,
+            "last_download_date": datetime.now().strftime("%Y-%m-%d")
+        })
 
 async def update_user(user_id: int, data: dict):
-    keys = ", ".join([f"{k} = ?" for k in data.keys()])
-    values = list(data.values()) + [user_id]
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(f"UPDATE users SET {keys} WHERE user_id = ?", values)
-        await db.commit()
+    await users_col.update_one({"user_id": user_id}, {"$set": data})
 
 async def increment_downloads(user_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE users SET total_downloads = total_downloads + 1, daily_downloads = daily_downloads + 1, last_download_date = date('now') WHERE user_id = ?",
-            (user_id,)
-        )
-        await db.commit()
+    await users_col.update_one(
+        {"user_id": user_id},
+        {
+            "$inc": {"total_downloads": 1, "daily_downloads": 1},
+            "$set": {"last_download_date": datetime.now().strftime("%Y-%m-%d")}
+        }
+    )
 
 async def get_clone_progress(user_id: int, chat_id: str) -> Optional[Dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute("SELECT * FROM clone_progress WHERE user_id = ? AND chat_id = ?", (user_id, chat_id))
-        row = await cur.fetchone()
-        return dict(row) if row else None
+    return await clone_col.find_one({"user_id": user_id, "chat_id": chat_id})
 
 async def save_clone_progress(user_id: int, chat_id: str, last_id: int, total: int, status: str = "running"):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "REPLACE INTO clone_progress (user_id, chat_id, last_msg_id, total_msgs, status, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (user_id, chat_id, last_id, total, status, datetime.now())
-        )
-        await db.commit()
+    await clone_col.update_one(
+        {"user_id": user_id, "chat_id": chat_id},
+        {"$set": {
+            "last_msg_id": last_id,
+            "total_msgs": total,
+            "status": status,
+            "updated_at": datetime.now()
+        }},
+        upsert=True
+    )
 
 # ============================================================
-# 🧰 HELPERS (Previously files.py, msg.py, utils.py, forward.py)
+# 🧰 HELPERS 
 # ============================================================
 SIZE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"]
 
@@ -191,60 +161,20 @@ def get_readable_time(seconds: int) -> str:
     result += f"{seconds}s"
     return result
 
-def get_download_path(folder_id: int, filename: str, root_dir: str = "downloads") -> str:
-    safe_name = os.path.basename(filename) or str(folder_id)
-    folder = os.path.join(root_dir, str(folder_id))
-    os.makedirs(folder, exist_ok=True)
-    return os.path.realpath(os.path.join(folder, safe_name))
-
 def cleanup_download(path: str) -> None:
     try:
-        if path and os.path.exists(path):
-            os.remove(path)
-        if path and os.path.exists(path + ".temp"):
-            os.remove(path + ".temp")
+        if path and os.path.exists(path): os.remove(path)
+        if path and os.path.exists(path + ".temp"): os.remove(path + ".temp")
         folder = os.path.dirname(path) if path else None
         if folder and os.path.isdir(folder) and not os.listdir(folder):
             os.rmdir(folder)
     except Exception as e:
         LOGGER(__name__).error(f"Cleanup failed: {e}")
 
-def cleanup_downloads_root(root_dir: str = "downloads") -> tuple[int, int]:
-    if not os.path.isdir(root_dir): return 0, 0
-    file_count = 0; total_size = 0
-    for dirpath, _, filenames in os.walk(root_dir):
-        for name in filenames:
-            file_count += 1
-            try:
-                total_size += os.path.getsize(os.path.join(dirpath, name))
-            except: pass
-    shutil.rmtree(root_dir, ignore_errors=True)
-    return file_count, total_size
-
-async def fileSizeLimit(file_size, message, action_type="download", is_premium=False):
-    max_size = 2 * 2097152000 if is_premium else 2097152000
-    if file_size > max_size:
-        await message.reply(f"File exceeds {get_readable_file_size(max_size)} limit.")
-        return False
-    return True
-
-async def resolve_forward_chat_id(raw: str):
-    if raw.lstrip("-").isdigit(): return int(raw)
-    return raw
-
-STORY_LINK_RE = re.compile(r"^(?:https?://)?(?:www\.)?(?:t(?:elegram)?\.(?:org|me|dog)/)([\w]+)/s/(\d+)/?$", re.IGNORECASE)
-
-def is_story_link(link: str) -> bool:
-    return bool(link and STORY_LINK_RE.match(link.strip()))
-
 def get_raw_text(text, entities):
     return (text or ""), (entities or [])
 
-def getStoryChatMsgID(link: str):
-    cleaned = link.split("?", 1)[0].strip()
-    match = STORY_LINK_RE.match(cleaned)
-    if not match: raise ValueError("Invalid story URL.")
-    return match.group(1), int(match.group(2))
+STORY_LINK_RE = re.compile(r"^(?:https?://)?(?:www\.)?(?:t(?:elegram)?\.(?:org|me|dog)/)([\w]+)/s/(\d+)/?$", re.IGNORECASE)
 
 def getChatMsgID(link: str):
     linkps = link.split("/")
@@ -262,26 +192,6 @@ def getChatMsgID(link: str):
     except: raise ValueError("Invalid post URL.")
     if not chat_id or not message_id: raise ValueError("Invalid post URL.")
     return chat_id, message_id
-
-def get_file_name(message_id: int, chat_message) -> str:
-    if chat_message.document: return chat_message.document.file_name or f"{message_id}.file"
-    if chat_message.video: return chat_message.video.file_name or f"{message_id}.mp4"
-    if chat_message.audio: return chat_message.audio.file_name or f"{message_id}.mp3"
-    if chat_message.voice: return f"{message_id}.ogg"
-    if chat_message.video_note: return f"{message_id}.mp4"
-    if chat_message.animation: return chat_message.animation.file_name or f"{message_id}.gif"
-    if chat_message.sticker:
-        if chat_message.sticker.is_animated: return f"{message_id}.tgs"
-        if chat_message.sticker.is_video: return f"{message_id}.webm"
-        return f"{message_id}.webp"
-    if chat_message.photo: return f"{message_id}.jpg"
-    return str(message_id)
-
-def get_story_file_name(story_id: int, story, chat_username: str = None) -> str:
-    prefix = f"{chat_username}_" if chat_username else ""
-    if getattr(story, "video", None): return f"{prefix}story_{story_id}.mp4"
-    if getattr(story, "photo", None): return f"{prefix}story_{story_id}.jpg"
-    return f"{prefix}story_{story_id}"
 
 async def cmd_exec(cmd, shell=False):
     if shell: proc = await asyncio.create_subprocess_shell(cmd, stdout=PIPE, stderr=PIPE)
@@ -306,21 +216,6 @@ async def get_media_info(path):
             return duration, artist, title, width, height
     except: pass
     return 0, None, None, None, None
-
-async def get_video_thumbnail(video_file, duration):
-    os.makedirs("Assets", exist_ok=True)
-    output = "Assets/video_thumb.jpg"
-    if not duration: duration = (await get_media_info(video_file))[0] or 3
-    duration //= 2
-    if os.path.exists(output):
-        try: os.remove(output)
-        except: pass
-    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", str(duration), "-i", video_file, "-vframes", "1", "-q:v", "2", "-y", output]
-    try:
-        _, err, code = await asyncio.wait_for(cmd_exec(cmd), timeout=60)
-        if code != 0 or not os.path.exists(output): return None
-    except: return None
-    return output
 
 PROGRESS_BAR = "Percentage: {percentage:.2f}% | {current}/{total}\nSpeed: {speed}/s\nEstimated Time Left: {est_time} seconds"
 
@@ -355,10 +250,6 @@ for i, ss in enumerate(SESSION_STRINGS):
     except Exception as e:
         LOGGER(__name__).error(f"Invalid session {i+1}: {e}")
 
-if not user_sessions:
-    LOGGER(__name__).error("No valid sessions! Bot will not work.")
-    sys.exit(1)
-
 session_counter = 0
 def get_next_session():
     global session_counter
@@ -376,6 +267,12 @@ def track_task(coro):
     task.add_done_callback(lambda t: RUNNING_TASKS.discard(t))
     return task
 
+def parse_date(date_val):
+    if isinstance(date_val, str):
+        try: return datetime.fromisoformat(date_val)
+        except: return None
+    return date_val
+
 # ============================================================
 # 🔐 PREMIUM DECORATOR
 # ============================================================
@@ -384,8 +281,10 @@ def premium_required(func):
         user = await get_user(message.from_user.id)
         if not user: await create_user(message.from_user.id, message.from_user.username); user = await get_user(message.from_user.id)
         now = datetime.now()
-        trial_end = datetime.fromisoformat(user['trial_end']) if user.get('trial_end') else None
-        premium_expiry = datetime.fromisoformat(user['premium_expiry']) if user.get('premium_expiry') else None
+        
+        trial_end = parse_date(user.get('trial_end'))
+        premium_expiry = parse_date(user.get('premium_expiry'))
+
         if (premium_expiry and premium_expiry > now) or (trial_end and trial_end > now and user['total_downloads'] < TRIAL_DOWNLOADS):
             return await func(client, message, *args, **kwargs)
         await message.reply("🚫 **Premium Required**\nSend /buy to unlock unlimited downloads & clone.")
@@ -405,8 +304,6 @@ async def help_cmd(_, message):
     await message.reply(
         "📌 **Commands:**\n"
         "/dl <link> - Download post\n"
-        "/bdl <start> <end> - Batch download\n"
-        "/dls <story> - Download story\n"
         "/clone <channel> - FULL CLONE (Premium)\n"
         "/buy - Get Premium\n"
         "/status - Your usage\n"
@@ -417,7 +314,7 @@ async def help_cmd(_, message):
 async def status_cmd(_, message):
     user = await get_user(message.from_user.id)
     if not user: await create_user(message.from_user.id); user = await get_user(message.from_user.id)
-    text = f"📊 **Status**\nPlan: {user['plan'].upper()}\nDownloads: {user['total_downloads']}\nTasks: {len(RUNNING_TASKS)}"
+    text = f"📊 **Status**\nPlan: {user.get('plan', 'free').upper()}\nDownloads: {user.get('total_downloads', 0)}\nTasks: {len(RUNNING_TASKS)}"
     await message.reply(text)
 
 @bot.on_message(filters.command("buy") & filters.private)
@@ -426,7 +323,7 @@ async def buy_cmd(_, message):
 
 @bot.on_message(filters.command("verify_payment") & filters.private)
 async def verify_cmd(_, message):
-    await update_user(message.from_user.id, {"plan": "premium", "premium_expiry": (datetime.now() + timedelta(days=30)).isoformat()})
+    await update_user(message.from_user.id, {"plan": "premium", "premium_expiry": datetime.now() + timedelta(days=30)})
     await message.reply("🎉 Premium Activated!")
 
 @bot.on_message(filters.command("cancel") & filters.private)
@@ -435,21 +332,6 @@ async def cancel_cmd(_, message):
     for t in list(RUNNING_TASKS):
         if not t.done(): t.cancel(); c += 1
     await message.reply(f"🛑 Cancelled {c} tasks.")
-
-@bot.on_message(filters.command("cleanup") & filters.private)
-async def cleanup_cmd(_, message):
-    f, b = cleanup_downloads_root()
-    await message.reply(f"Cleaned {f} files, freed {get_readable_file_size(b)}.")
-
-@bot.on_message(filters.command("logs") & filters.private)
-async def logs_cmd(_, message):
-    if os.path.exists("logs.txt"): await message.reply_document("logs.txt")
-    else: await message.reply("No logs.")
-
-@bot.on_message(filters.command("stats") & filters.private)
-async def stats_cmd(_, message):
-    total, used, free = shutil.disk_usage(".")
-    await message.reply(f"**Uptime:** {get_readable_time(time() - BOT_START_TIME)}\n**Disk:** Used {get_readable_file_size(used)} / {get_readable_file_size(total)}")
 
 # ============================================================
 # 📥 DOWNLOAD HANDLER
@@ -460,8 +342,10 @@ async def handle_download(client, message, url):
         user = await get_user(message.from_user.id)
         if not user: await create_user(message.from_user.id); user = await get_user(message.from_user.id)
         now = datetime.now()
-        trial_end = datetime.fromisoformat(user['trial_end']) if user.get('trial_end') else None
-        premium_expiry = datetime.fromisoformat(user['premium_expiry']) if user.get('premium_expiry') else None
+        
+        trial_end = parse_date(user.get('trial_end'))
+        premium_expiry = parse_date(user.get('premium_expiry'))
+
         if not (premium_expiry and premium_expiry > now) and (not trial_end or trial_end < now or user['total_downloads'] >= TRIAL_DOWNLOADS):
             return await message.reply("🚫 Trial limit exceeded. Send /buy")
         
@@ -477,7 +361,6 @@ async def handle_download(client, message, url):
             
             if msg.media:
                 await increment_downloads(message.from_user.id)
-                # Simplified media send
                 path = await msg.download()
                 await message.reply_document(path)
                 cleanup_download(path)
@@ -555,7 +438,7 @@ async def processMediaGroup(chat_message, bot, message, forward_chat_id=None):
     await prog.delete()
 
 # ============================================================
-# 🧵 FLASK WEB SERVER (To keep Render alive)
+# 🧵 FLASK WEB SERVER (Dynamic Port Fix)
 # ============================================================
 flask_app = Flask('')
 
@@ -564,7 +447,8 @@ def home():
     return "Bot is running!"
 
 def run_flask():
-    flask_app.run(host='0.0.0.0', port=8080)
+    port = int(os.environ.get("PORT", 8080)) # Fix: dynamic port handling
+    flask_app.run(host='0.0.0.0', port=port)
 
 # ============================================================
 # 🚀 MAIN ENTRY POINT
@@ -572,13 +456,10 @@ def run_flask():
 async def main():
     global download_semaphore
     download_semaphore = asyncio.Semaphore(MAX_CONCURRENT)
-    await init_db()
     
-    # Start Bot
     await bot.start()
     LOGGER(__name__).info("🤖 Bot started!")
     
-    # Start User Sessions
     for i, sess in enumerate(user_sessions):
         try:
             await sess.start()
@@ -591,10 +472,7 @@ async def main():
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    # Start Flask in background
     Thread(target=run_flask, daemon=True).start()
-    
-    # Run Bot
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
