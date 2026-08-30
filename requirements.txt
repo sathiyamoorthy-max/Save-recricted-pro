@@ -1,9 +1,8 @@
-pyrogram==2.0.106
+pyrogram
 pyleaves
 python-dotenv
 psutil
-aiosqlite
-pydantic
-TgCrypto
+motor
 Flask
+TgCrypto
 pillow
