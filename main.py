@@ -1,1034 +1,581 @@
-# ==============================================================================
-# 🚀 ULTIMATE TELEGRAM RESTRICTED CONTENT SAVER & CLONER - v7.0 ENTERPRISE
-# ==============================================================================
-# Architecture Highlights:
-# 1. Multi-Session Userbot Rotator with FloodWait cooldown tracking & auto-failover
-# 2. Dynamic Peer Cache Warmer & Safe Resolver (eliminates PeerIdInvalid crashes)
-# 3. Universal Link Parser (Private /c/, Public, Forum Topics, and Glued Links)
-# 4. Anti-OOM & Disk Exhaustion Protection (Headroom check, auto-clean, file limits)
-# 5. Native asyncio.Task Cancellation (Instant /cancel execution without hanging)
-# 6. Smart Caption Length Splitter (Guards against MEDIA_CAPTION_TOO_LONG > 1024 chars)
-# 7. Secure Anti-Fraud UPI Payment Approval Engine (MongoDB unique txn_id index)
-# 8. Multilingual i18n Engine (English 🇬🇧 & தமிழ் 🇮🇳)
-# 9. Telemetry Keep-Alive Flask Server (Exposes /health & /stats for Render/Koyeb)
-# 10. Robust MongoDB with in-memory fallback for local development
-# ==============================================================================
+"""
+🔥 SUPREME TELEGRAM DOWNLOADER v6.0 (Admin Ready)
+👑 Owner: @sathiyamoorthy-max
+💰 Pricing: ₹199/month | ₹699/Lifetime
+✅ Features: Clone(Public/Private), Unlimited Batch, Analyzer, Stories
+"""
 
 import os
 import sys
 import re
-import json
-import sqlite3
-import shutil
 import asyncio
+import shutil
 import logging
+import sqlite3
+import psutil
 from time import time
-from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Tuple, List, Union
+from datetime import datetime, timedelta
+from typing import Optional, List, Tuple
 from threading import Thread
+from asyncio import Queue, Semaphore
 from logging.handlers import RotatingFileHandler
 
-# Optional system monitor
+# ============================================================
+# 🛠️ RENDER / PYTHON 3.14 EVENT LOOP FIX
+# ============================================================
 try:
-    import psutil
-    HAS_PSUTIL = True
-except ImportError:
-    HAS_PSUTIL = False
-
-# Optional Flask Keep-Alive Server
-try:
-    from flask import Flask, jsonify
-    HAS_FLASK = True
-except ImportError:
-    HAS_FLASK = False
-
-# Optional .env loader (Works directly even if .env file is completely absent!)
-try:
-    from dotenv import load_dotenv
-    load_dotenv("config.env")
-except Exception:
-    pass
-
-# --- 1. PYTHON 3.10-3.14 COMPLIANT ASYNC EVENT LOOP SETUP ---
-try:
-    loop = asyncio.get_event_loop()
-    if loop.is_closed():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    asyncio.get_running_loop()
 except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    asyncio.set_event_loop(asyncio.new_event_loop())
 
-from pyrogram import Client, filters, idle
+# ============================================================
+# 📦 AUTO-INSTALL PACKAGES
+# ============================================================
+try:
+    import pyrogram
+    import aiosqlite
+    from flask import Flask, jsonify
+    from dotenv import load_dotenv
+    from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+except ImportError as e:
+    print(f"⚠️ Installing: {e}")
+    os.system(f"{sys.executable} -m pip install pyrogram pyleaves python-dotenv psutil aiosqlite Flask tenacity TgCrypto pillow")
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+from pyrogram import Client, filters
 from pyrogram.enums import ParseMode, ChatType
-from pyrogram.errors import (
-    FloodWait, BadRequest, PeerIdInvalid, 
-    ChannelPrivate, UserNotParticipant, RPCError
-)
-from pyrogram.types import (
-    Message, InlineKeyboardMarkup, InlineKeyboardButton, 
-    CallbackQuery, BotCommand
-)
-# Optional MongoDB driver
-try:
-    from motor.motor_asyncio import AsyncIOMotorClient
-    HAS_MOTOR = True
-except ImportError:
-    HAS_MOTOR = False
+from pyrogram.errors import FloodWait, UsernameNotOccupied
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.utils import get_channel_id
+from pyleaves import Leaves
+from dotenv import load_dotenv
+from flask import Flask, jsonify
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+import aiosqlite
 
-# Optional PyLeaves progress bar
-try:
-    from pyleaves import Leaves
-    HAS_LEAVES = True
-except ImportError:
-    HAS_LEAVES = False
-
-# ==============================================================================
-# ⚙️ CONFIGURATION & DIRECT CREDENTIALS (WORKS OUT-OF-THE-BOX DIRECTLY ON TELEGRAM!)
-# ==============================================================================
-# Pre-configured Telegram credentials provided for immediate execution:
-DEFAULT_API_ID = 4402984
-DEFAULT_API_HASH = "aa95b6e3675cbda608ea311be9258d9b"
-DEFAULT_BOT_TOKEN = "8746649590:AAGNA230wtvnsSYKSRD4JMDy-o0WfYwZy5w"
-DEFAULT_SESSION = "BQBDLygAJRxrBesoDeOuk42Lld84UggSENJ7cQxnx_pulH0mkn6IepwMzNqzxhYiSzJ_tOEWqeE_JQByDfz8zSZsptiUe1vGG0d42ZmCIRyTFImb4nUG3Ju5UPTAFcaXOHZvgXXtCJc_9mFLybmnpP2icK-oD7tmJl-iyHB04XTx4U8fOOg78iA7eweg4r9nT6VUepIuehrum4Llbb_dUXHuWe9YeAFm3l4J50uHLORxsAE1pRzy65uHLwSDYZyU3Ij-Qyl-cDUgaYJKxTQI7BnJB4QNJa0MxYwQz-vvrjXdg8q7vINgneBlZW_xENro5m242Liouq1w9yHurMwoAl-xfopZYQAAAAA7qP9fAA"
+# ============================================================
+# ⚙️ LOAD CONFIG
+# ============================================================
+load_dotenv("config.env")
 
 class Config:
-    # Read from environment variables if present, or fallback seamlessly to direct credentials:
-    API_ID = int(os.getenv("API_ID", str(DEFAULT_API_ID)))
-    API_HASH = os.getenv("API_HASH", DEFAULT_API_HASH)
-    BOT_TOKEN = os.getenv("BOT_TOKEN", DEFAULT_BOT_TOKEN)
+    API_ID = int(os.getenv("API_ID", 0))
+    API_HASH = os.getenv("API_HASH", "")
+    BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+    SESSION_STRINGS = [s.strip() for s in os.getenv("SESSION_STRINGS", "").split(",") if s.strip()]
+    ADMIN_ID = int(os.getenv("ADMIN_ID", 0))  # ⭐ YOUR TELEGRAM USER ID
     
-    # Userbot session strings (comma-separated for multi-account rotation)
-    raw_sessions = os.getenv("SESSION_STRINGS", os.getenv("STRING_SESSION", DEFAULT_SESSION))
-    SESSION_STRINGS = [s.strip() for s in raw_sessions.split(",") if s.strip()]
-    if not SESSION_STRINGS:
-        SESSION_STRINGS = [DEFAULT_SESSION]
+    MAX_CONCURRENT = int(os.getenv("MAX_CONCURRENT", "3"))
+    BATCH_SIZE = int(os.getenv("BATCH_SIZE", "50"))
+    FLOOD_SLEEP = int(os.getenv("FLOOD_SLEEP", "3"))
     
-    MONGO_URL = os.getenv("MONGO_URL", "")
-    OWNER_ID = int(os.getenv("OWNER_ID", "0"))
-    UPI_ID = os.getenv("UPI_ID", "sathiyasevam@okaxis")
-    DUMP_CHANNEL = os.getenv("DUMP_CHANNEL", "")
-    CUSTOM_CAPTION = os.getenv("CUSTOM_CAPTION", "")
-    
-    # Limits & Performance Tuning
-    MAX_CONCURRENT = int(os.getenv("MAX_CONCURRENT", "2"))
-    BATCH_SLEEP = int(os.getenv("BATCH_SLEEP", "3"))
-    MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "2000")) # 2GB Telegram limit
-    MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-    MIN_DISK_HEADROOM_MB = int(os.getenv("MIN_DISK_HEADROOM_MB", "400"))
-    PORT = int(os.getenv("PORT", "8080"))
-    
-    # Monetization & Quotas
-    TRIAL_DOWNLOADS = int(os.getenv("TRIAL_DOWNLOADS", "25"))
-    TRIAL_DAYS = int(os.getenv("TRIAL_DAYS", "3"))
-    PREMIUM_PRICE = int(os.getenv("PREMIUM_PRICE", "199"))
-    LIFETIME_PRICE = int(os.getenv("LIFETIME_PRICE", "699"))
+    # YOUR PRICES (from screenshots)
+    PREMIUM_PRICE = 199
+    LIFETIME_PRICE = 699
+    UPI_ID = "sathiyamoorthy8020-2@okicici"  # Your UPI from screenshot
+
+    if not API_ID or not API_HASH or not BOT_TOKEN or not SESSION_STRINGS:
+        print("❌ Missing API details!")
+        sys.exit(1)
 
 config = Config()
 BOT_START_TIME = time()
-DOWNLOADS_DIR = os.path.join(os.getcwd(), "downloads")
-os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+LOGGER = logging.getLogger("UltimateBot")
 
-# Validate critical credentials
-if not (config.API_ID and config.API_HASH and config.BOT_TOKEN and config.SESSION_STRINGS):
-    print("❌ Critical Error: Missing API_ID, API_HASH, BOT_TOKEN or SESSION_STRINGS!")
-    sys.exit(1)
-
-# ==============================================================================
-# 📝 LOGGING SETUP
-# ==============================================================================
+# ============================================================
+# 📝 LOGGING
+# ============================================================
+try: os.remove("logs.txt")
+except: pass
 logging.basicConfig(
     level=logging.INFO,
-    format="[%(asctime)s - %(levelname)s] - %(name)s - %(message)s",
-    datefmt="%d-%b-%y %I:%M:%S %p",
+    format="[%(asctime)s - %(levelname)s] - %(message)s",
     handlers=[
-        RotatingFileHandler("bot_activity.log", mode="w+", maxBytes=5_000_000, backupCount=2),
-        logging.StreamHandler(sys.stdout),
+        RotatingFileHandler("logs.txt", maxBytes=10_000_000, backupCount=5),
+        logging.StreamHandler(),
     ],
 )
 logging.getLogger("pyrogram").setLevel(logging.ERROR)
-logger = logging.getLogger("SaverBot-v7")
 
-# ==============================================================================
-# 🌐 KEEP-ALIVE HTTP TELEMETRY SERVER (Optional / For Render & Koyeb 24/7 Webhook)
-# ==============================================================================
-if HAS_FLASK:
-    flask_app = Flask(__name__)
+# ============================================================
+# 🗄️ DATABASE
+# ============================================================
+DB_PATH = "bot_database.db"
 
-    @flask_app.route('/')
-    def home():
-        uptime = int(time() - BOT_START_TIME)
-        return f"<h3>⚡ Ultimate Telegram Restricted Saver v7.0 Enterprise is LIVE!</h3><p>Uptime: {uptime}s</p>"
+async def db_execute(query, params=(), fetchone=False, fetchall=False):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(query, params)
+        if fetchone:
+            row = await cur.fetchone(); await db.commit(); return dict(row) if row else None
+        if fetchall:
+            rows = await cur.fetchall(); await db.commit(); return [dict(r) for r in rows]
+        await db.commit()
 
-    @flask_app.route('/health')
-    def health_check():
-        disk = shutil.disk_usage(DOWNLOADS_DIR)
-        ram_mb = round(psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024), 2) if HAS_PSUTIL else 0.0
-        return jsonify({
-            "status": "healthy",
-            "uptime_seconds": int(time() - BOT_START_TIME),
-            "free_disk_mb": round(disk.free / (1024 * 1024), 2),
-            "ram_usage_mb": ram_mb,
-            "active_user_tasks": len(ACTIVE_USER_TASKS) if 'ACTIVE_USER_TASKS' in globals() else 0,
-            "sessions_count": len(userbot_pool.sessions) if 'userbot_pool' in globals() else 1
-        })
+async def init_db():
+    await db_execute("""CREATE TABLE IF NOT EXISTS users (
+        user_id INTEGER PRIMARY KEY, username TEXT, plan TEXT DEFAULT 'free',
+        trial_start TEXT, trial_end TEXT, premium_expiry TEXT,
+        total_downloads INTEGER DEFAULT 0, bonus_downloads INTEGER DEFAULT 0,
+        created_at TEXT)""")
+    await db_execute("""CREATE TABLE IF NOT EXISTS clone_progress (
+        user_id INTEGER, chat_id TEXT, last_msg_id INTEGER, total_msgs INTEGER,
+        status TEXT, updated_at TEXT, PRIMARY KEY (user_id, chat_id))""")
+    await db_execute("""CREATE TABLE IF NOT EXISTS download_cache (
+        chat_id TEXT, msg_id INTEGER, status TEXT, PRIMARY KEY (chat_id, msg_id))""")
 
-    def run_flask():
-        try:
-            flask_app.run(host="0.0.0.0", port=config.PORT, debug=False, use_reloader=False)
-        except Exception as e:
-            logger.info(f"Flask keep-alive server notification: {e}")
+async def get_user(user_id): return await db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True)
+async def create_user(user_id, username=""):
+    if await get_user(user_id): return
+    trial_end = (datetime.now() + timedelta(days=7)).isoformat()
+    await db_execute("INSERT INTO users (user_id, username, plan, trial_start, trial_end, created_at) VALUES (?, ?, 'free', ?, ?, ?)",
+                     (user_id, username, datetime.now().isoformat(), trial_end, datetime.now().isoformat()))
+async def update_user(user_id, data):
+    set_clause = ", ".join([f"{k} = ?" for k in data])
+    await db_execute(f"UPDATE users SET {set_clause} WHERE user_id = ?", [data[k] for k in data] + [user_id])
+async def increment_downloads(user_id): await db_execute("UPDATE users SET total_downloads = total_downloads + 1 WHERE user_id = ?", (user_id,))
+async def is_cached(chat_id, msg_id):
+    return bool(await db_execute("SELECT 1 FROM download_cache WHERE chat_id = ? AND msg_id = ?", (str(chat_id), msg_id), fetchone=True))
+async def mark_cached(chat_id, msg_id):
+    await db_execute("REPLACE INTO download_cache (chat_id, msg_id, status) VALUES (?, ?, 'done')", (str(chat_id), msg_id))
+async def get_clone_progress(user_id, chat_id):
+    return await db_execute("SELECT * FROM clone_progress WHERE user_id = ? AND chat_id = ?", (user_id, str(chat_id)), fetchone=True)
+async def save_clone_progress(user_id, chat_id, last_id, total):
+    await db_execute("REPLACE INTO clone_progress (user_id, chat_id, last_msg_id, total_msgs, status, updated_at) VALUES (?, ?, ?, ?, 'running', ?)",
+                     (user_id, str(chat_id), last_id, total, datetime.now().isoformat()))
 
-    Thread(target=run_flask, daemon=True).start()
-else:
-    logger.info("ℹ️ Flask not installed; running in ultra-lightweight direct bot mode.")
-
-# ==============================================================================
-# 🗄️ PERSISTENT DATABASE (LOCAL SQLITE3 / JSON PERSISTENCE + OPTIONAL MONGODB)
-# Works 100% seamlessly WITHOUT MONGO_URL (Zero external setup required!)
-# ==============================================================================
-class DatabaseManager:
-    def __init__(self, mongo_url: str = ""):
-        self.connected_mongo = False
-        self.sqlite_path = "bot_data.db"
-        self.lock = asyncio.Lock()
-        
-        # In-memory fast cache
-        self.memory_users = {}
-        self.memory_payments = {}
-        
-        # 1. First initialize local SQLite3 persistent storage (Requires NO external server)
-        self._init_sqlite()
-        
-        # 2. If MONGO_URL is optionally provided and motor is installed, connect to MongoDB
-        if HAS_MOTOR and mongo_url:
-            try:
-                self.client = AsyncIOMotorClient(mongo_url)
-                self.db = self.client["telegram_saver_v7"]
-                self.users = self.db["users"]
-                self.payments = self.db["payments"]
-                self.connected_mongo = True
-                logger.info("✅ Connected to Optional Persistent MongoDB Cloud!")
-            except Exception as e:
-                logger.warning(f"⚠️ MongoDB connection failed, staying on local SQLite persistence: {e}")
-        else:
-            logger.info("🚀 Running in Zero-Config Mode: High-performance SQLite local persistence active (No MONGO_URL needed)!")
-
-    def _init_sqlite(self):
-        try:
-            with sqlite3.connect(self.sqlite_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS users (
-                        user_id INTEGER PRIMARY KEY,
-                        plan TEXT DEFAULT 'free',
-                        lang TEXT DEFAULT 'en',
-                        trial_start TEXT,
-                        trial_end TEXT,
-                        premium_expiry TEXT,
-                        total_downloads INTEGER DEFAULT 0,
-                        bonus_downloads INTEGER DEFAULT 0,
-                        referred_by INTEGER,
-                        created_at TEXT
-                    )
-                """)
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS payments (
-                        txn_id TEXT PRIMARY KEY,
-                        user_id INTEGER,
-                        status TEXT DEFAULT 'pending',
-                        created_at TEXT
-                    )
-                """)
-                conn.commit()
-                
-                # Pre-load into memory cache for zero latency
-                cursor.execute("SELECT user_id, plan, lang, trial_start, trial_end, premium_expiry, total_downloads, bonus_downloads, referred_by, created_at FROM users")
-                for row in cursor.fetchall():
-                    self.memory_users[row[0]] = {
-                        "user_id": row[0],
-                        "plan": row[1],
-                        "lang": row[2],
-                        "trial_start": datetime.fromisoformat(row[3]) if row[3] else None,
-                        "trial_end": datetime.fromisoformat(row[4]) if row[4] else None,
-                        "premium_expiry": datetime.fromisoformat(row[5]) if row[5] else None,
-                        "total_downloads": row[6],
-                        "bonus_downloads": row[7],
-                        "referred_by": row[8],
-                        "created_at": datetime.fromisoformat(row[9]) if row[9] else datetime.now(timezone.utc)
-                    }
-                cursor.execute("SELECT txn_id, user_id, status, created_at FROM payments")
-                for row in cursor.fetchall():
-                    self.memory_payments[row[0]] = {
-                        "txn_id": row[0],
-                        "user_id": row[1],
-                        "status": row[2],
-                        "created_at": datetime.fromisoformat(row[3]) if row[3] else datetime.now(timezone.utc)
-                    }
-                logger.info(f"📁 SQLite3 Storage Loaded: {len(self.memory_users)} cached users, {len(self.memory_payments)} payments")
-        except Exception as e:
-            logger.error(f"Error initializing SQLite storage: {e}")
-
-    async def init_indexes(self):
-        if self.connected_mongo:
-            try:
-                await self.payments.create_index("txn_id", unique=True)
-                await self.users.create_index("user_id", unique=True)
-            except Exception as e:
-                logger.error(f"Index creation warning: {e}")
-
-    async def get_user(self, user_id: int) -> dict:
-        now = datetime.now(timezone.utc)
-        
-        # Check in-memory cache first
-        if user_id in self.memory_users:
-            return self.memory_users[user_id]
-            
-        if self.connected_mongo:
-            user = await self.users.find_one({"user_id": user_id})
-            if not user:
-                user = {
-                    "user_id": user_id,
-                    "plan": "free",
-                    "lang": "en",
-                    "trial_start": now,
-                    "trial_end": now + timedelta(days=config.TRIAL_DAYS),
-                    "premium_expiry": None,
-                    "total_downloads": 0,
-                    "bonus_downloads": 0,
-                    "referred_by": None,
-                    "created_at": now
-                }
-                await self.users.insert_one(user)
-            self.memory_users[user_id] = user
-            return user
-        else:
-            # Create user locally in SQLite & memory
-            trial_end = now + timedelta(days=config.TRIAL_DAYS)
-            user_data = {
-                "user_id": user_id,
-                "plan": "free",
-                "lang": "en",
-                "trial_start": now,
-                "trial_end": trial_end,
-                "premium_expiry": None,
-                "total_downloads": 0,
-                "bonus_downloads": 0,
-                "referred_by": None,
-                "created_at": now
-            }
-            self.memory_users[user_id] = user_data
-            async with self.lock:
-                try:
-                    with sqlite3.connect(self.sqlite_path) as conn:
-                        conn.execute("""
-                            INSERT OR IGNORE INTO users 
-                            (user_id, plan, lang, trial_start, trial_end, premium_expiry, total_downloads, bonus_downloads, referred_by, created_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            user_id, "free", "en", 
-                            now.isoformat(), trial_end.isoformat(), 
-                            None, 0, 0, None, now.isoformat()
-                        ))
-                        conn.commit()
-                except Exception as e:
-                    logger.error(f"SQLite save user error: {e}")
-            return user_data
-
-    async def update_user(self, user_id: int, updates: dict):
-        if user_id not in self.memory_users:
-            await self.get_user(user_id)
-            
-        self.memory_users[user_id].update(updates)
-        
-        if self.connected_mongo:
-            await self.users.update_one({"user_id": user_id}, {"$set": updates})
-            
-        # Persist to local SQLite
-        async with self.lock:
-            try:
-                set_clauses = []
-                values = []
-                for k, v in updates.items():
-                    if isinstance(v, datetime):
-                        values.append(v.isoformat())
-                    else:
-                        values.append(v)
-                    set_clauses.append(f"{k} = ?")
-                values.append(user_id)
-                query = f"UPDATE users SET {', '.join(set_clauses)} WHERE user_id = ?"
-                with sqlite3.connect(self.sqlite_path) as conn:
-                    conn.execute(query, values)
-                    conn.commit()
-            except Exception as e:
-                logger.error(f"SQLite update user error: {e}")
-
-    async def increment_downloads(self, user_id: int):
-        if user_id not in self.memory_users:
-            await self.get_user(user_id)
-            
-        self.memory_users[user_id]["total_downloads"] += 1
-        
-        if self.connected_mongo:
-            await self.users.update_one({"user_id": user_id}, {"$inc": {"total_downloads": 1}})
-            
-        async with self.lock:
-            try:
-                with sqlite3.connect(self.sqlite_path) as conn:
-                    conn.execute("UPDATE users SET total_downloads = total_downloads + 1 WHERE user_id = ?", (user_id,))
-                    conn.commit()
-            except Exception as e:
-                logger.error(f"SQLite increment downloads error: {e}")
-
-    async def is_eligible(self, user_id: int) -> Tuple[bool, str]:
-        if user_id == config.OWNER_ID:
-            return True, "owner"
-        user = await self.get_user(user_id)
-        now = datetime.now(timezone.utc)
-        
-        # Check premium status
-        if user.get("plan") == "premium" and user.get("premium_expiry"):
-            expiry = user["premium_expiry"]
-            if isinstance(expiry, str):
-                expiry = datetime.fromisoformat(expiry)
-            if expiry.tzinfo is None:
-                expiry = expiry.replace(tzinfo=timezone.utc)
-            if expiry > now:
-                return True, "premium"
-
-        # Check free trial status
-        trial_end = user.get("trial_end")
-        if trial_end:
-            if isinstance(trial_end, str):
-                trial_end = datetime.fromisoformat(trial_end)
-            if trial_end.tzinfo is None:
-                trial_end = trial_end.replace(tzinfo=timezone.utc)
-            
-        max_free = config.TRIAL_DOWNLOADS + user.get("bonus_downloads", 0)
-        if trial_end and trial_end > now and user.get("total_downloads", 0) < max_free:
-            return True, "trial"
-
-        return False, "expired"
-
-    async def record_payment_claim(self, user_id: int, txn_id: str) -> bool:
-        txn_clean = txn_id.strip().upper()
-        now = datetime.now(timezone.utc)
-        
-        if txn_clean in self.memory_payments:
-            return False
-            
-        claim_data = {
-            "txn_id": txn_clean,
-            "user_id": user_id,
-            "status": "pending",
-            "created_at": now
-        }
-        self.memory_payments[txn_clean] = claim_data
-        
-        if self.connected_mongo:
-            existing = await self.payments.find_one({"txn_id": txn_clean})
-            if existing:
-                return False
-            await self.payments.insert_one(claim_data)
-            
-        async with self.lock:
-            try:
-                with sqlite3.connect(self.sqlite_path) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT txn_id FROM payments WHERE txn_id = ?", (txn_clean,))
-                    if cursor.fetchone():
-                        return False
-                    cursor.execute("""
-                        INSERT INTO payments (txn_id, user_id, status, created_at)
-                        VALUES (?, ?, ?, ?)
-                    """, (txn_clean, user_id, "pending", now.isoformat()))
-                    conn.commit()
-            except sqlite3.IntegrityError:
-                return False
-            except Exception as e:
-                logger.error(f"SQLite payment record error: {e}")
-                
-        return True
-
-db_manager = DatabaseManager(config.MONGO_URL)
-
-# ==============================================================================
-# 🌍 BILINGUAL LOCALIZATION (ENGLISH & TAMIL)
-# ==============================================================================
-STRINGS = {
-    "en": {
-        "welcome": (
-            "🚀 **Ultimate Telegram Saver & Cloner v7.0 Enterprise**\n\n"
-            "👤 **User ID:** `{user_id}`\n"
-            "⭐ **Current Plan:** `{plan}`\n"
-            "📥 **Downloads Used:** `{downloads}/{allowed}`\n\n"
-            "**Supported Modes:**\n"
-            "• **Single Link:** Send any private or restricted post URL\n"
-            "• **Range Batch:** `/batch <start_url> <end_id_or_url>`\n"
-            "• **Channel Cloner:** `/clone <start_url>`\n"
-            "• **Account Status:** `/status`\n"
-            "• **Upgrade Quota:** `/buy`\n"
-            "• **Halt Task:** `/cancel`\n"
-            "• **Change Language:** `/lang`"
-        ),
-        "quota_exceeded": "🚫 **Quota limit reached!** Upgrade to premium with `/buy` for unlimited downloads.",
-        "invalid_link": "❌ **Invalid Telegram link format.** Please check the URL and try again.",
-        "fetching": "⚡ **Fetching restricted media safely...**",
-        "downloading": "📥 **Downloading restricted content...**",
-        "uploading": "📤 **Re-uploading in 100% original quality...**",
-        "task_started": "🚀 **Task started!** To halt at any moment, send `/cancel`.",
-        "task_cancelled": "🛑 **Active task cancelled successfully.** Temporary files purged.",
-        "no_active_task": "ℹ️ There are no running batch or download tasks.",
-        "already_running": "⚠️ Another task is already running. Send `/cancel` first.",
-        "batch_done": "🎉 **Batch Finished!**\n✅ Transferred: `{success}` | ❌ Skipped: `{failed}`",
-        "claim_submitted": "✅ **Payment proof submitted!** The admin will verify and activate your plan.",
-        "claim_duplicate": "⚠️ **This Transaction ID has already been claimed.** Contact admin if in doubt.",
-        "disk_full": "⚠️ **Server storage is temporarily constrained.** Task queued for next worker slot."
-    },
-    "ta": {
-        "welcome": (
-            "🤖 **அட்வான்ஸ்டு டெலிகிராம் சேவர் & குளோனர் v7.0**\n\n"
-            "👤 **பயனர் ஐடி:** `{user_id}`\n"
-            "⭐ **திட்டம்:** `{plan}`\n"
-            "📥 **பயன்படுத்திய டவுன்லோடுகள்:** `{downloads}/{allowed}`\n\n"
-            "✨ **பயன்படுத்தும் முறைகள்:**\n"
-            "• **ஒற்றை பைல்:** ஏதேனும் பிரைவேட் லிங்கை அனுப்பவும்\n"
-            "• **வரம்பு டவுன்லோட்:** `/batch <ஆரம்ப_லிங்க்> <கடைசி_லிங்க்>`\n"
-            "• **முழு குளோனிங்:** `/clone <ஆரம்ப_லிங்க்>`\n"
-            "• **கணக்கு விபரம்:** `/status`\n"
-            "• **அன்லிமிடெட் பெற:** `/buy`\n"
-            "• **பணியை ரத்து செய்ய:** `/cancel`"
-        ),
-        "quota_exceeded": "🚫 **டவுன்லோட் வரம்பு முடிந்துவிட்டது!** வரம்பற்ற பயன்பாட்டிற்கு `/buy` அனுப்பவும்.",
-        "invalid_link": "❌ **தவறான டெலிகிராம் லிங்க் வடிவம்.** தயவுசெய்து சரிபார்க்கவும்.",
-        "fetching": "🔄 **பிரைவேட் மீடியாவைத் தேடுகிறது...**",
-        "downloading": "📥 **பைல் டவுன்லோட் ஆகிறது...**",
-        "uploading": "📤 **100% ஒரிஜினல் தரத்தில் உங்களுக்கு அனுப்பப்படுகிறது...**",
-        "task_started": "🚀 **பணி தொடங்கியது!** நிறுத்த விரும்பினால் `/cancel` அனுப்பவும்.",
-        "task_cancelled": "🛑 **பணி வெற்றிகரமாக ரத்து செய்யப்பட்டது.**",
-        "no_active_task": "ℹ️ தற்போது எந்தப் பணியும் இயங்கவில்லை.",
-        "already_running": "⚠️ ஏற்கனவே ஒரு பணி இயங்குகிறது. ரத்து செய்ய `/cancel` அனுப்பவும்.",
-        "batch_done": "🎉 **பணி முடிந்தது!**\n✅ அனுப்பப்பட்டவை: `{success}` | ❌ தோல்வி: `{failed}`",
-        "claim_submitted": "✅ **பணம் செலுத்திய விபரம் அனுப்பப்பட்டது!** சரிபார்த்து செயல்படுத்தப்படும்.",
-        "claim_duplicate": "⚠️ **இந்த Transaction ID ஏற்கனவே சமர்ப்பிக்கப்பட்டுள்ளது.**",
-        "disk_full": "⚠️ **சர்வர் நினைவகம் நிறைந்துள்ளது.** சிறிது நேரத்தில் முயற்சிக்கவும்."
-    }
-}
-
-async def get_msg(user_id: int, key: str, **kwargs) -> str:
-    user = await db_manager.get_user(user_id)
-    lang = user.get("lang", "en")
-    template = STRINGS.get(lang, STRINGS["en"]).get(key, STRINGS["en"][key])
-    return template.format(**kwargs)
-
-# ==============================================================================
-# 🤖 MULTI-SESSION USERBOT ROTATOR WITH FLOODWAIT RESILIENCE
-# ==============================================================================
-class UserbotSession:
-    def __init__(self, index: int, client: Client):
-        self.index = index
-        self.client = client
-        self.cooldown_until = 0
-        self.peer_cache_warmed = False
-
-class SessionPoolManager:
-    def __init__(self, session_strings: List[str]):
-        self.sessions: List[UserbotSession] = []
-        for idx, s_str in enumerate(session_strings):
-            try:
-                ub = Client(
-                    f"user_session_{idx}",
-                    api_id=config.API_ID,
-                    api_hash=config.API_HASH,
-                    session_string=s_str,
-                    sleep_threshold=60,
-                    in_memory=True
-                )
-                self.sessions.append(UserbotSession(idx, ub))
-            except Exception as e:
-                logger.error(f"Failed to create session #{idx}: {e}")
-        self._rotation_idx = 0
-
-    async def start_all(self):
-        for s in self.sessions:
-            try:
-                await s.client.start()
-                logger.info(f"✅ Userbot Session #{s.index} successfully connected!")
-            except Exception as e:
-                logger.error(f"❌ Userbot Session #{s.index} failed to start: {e}")
-
-    async def warm_peer_cache_all(self):
-        for s in self.sessions:
-            if not s.peer_cache_warmed:
-                try:
-                    logger.info(f"🔄 Warming peer cache for Userbot #{s.index}...")
-                    async for _ in s.client.get_dialogs(limit=150):
-                        pass
-                    s.peer_cache_warmed = True
-                    logger.info(f"✅ Peer cache warmed for Userbot #{s.index}")
-                except Exception as e:
-                    logger.warning(f"⚠️ Cache warming warning on session #{s.index}: {e}")
-
-    def mark_floodwait(self, session: UserbotSession, seconds: int):
-        session.cooldown_until = time() + seconds + 5
-        logger.warning(f"⏳ Userbot #{session.index} in FloodWait cooldown for {seconds}s")
-
-    def get_healthy_session(self) -> UserbotSession:
-        now = time()
-        available = [s for s in self.sessions if s.cooldown_until <= now]
-        if available:
-            chosen = available[self._rotation_idx % len(available)]
-            self._rotation_idx += 1
-            return chosen
-        # If all are in cooldown, pick the one that will become free earliest
-        logger.warning("⚠️ All userbot sessions in cooldown! Selecting earliest available...")
-        return min(self.sessions, key=lambda s: s.cooldown_until)
-
-userbot_pool = SessionPoolManager(config.SESSION_STRINGS)
-
-# Main Bot Client
-bot = Client(
-    "CentralRestrictedBot",
-    api_id=config.API_ID,
-    api_hash=config.API_HASH,
-    bot_token=config.BOT_TOKEN,
-    workers=30,
-    parse_mode=ParseMode.MARKDOWN
-)
-
-# Concurrency & Active Task Trackers
-download_semaphore = asyncio.Semaphore(config.MAX_CONCURRENT)
-ACTIVE_USER_TASKS: Dict[int, asyncio.Task] = {}
-
-# ==============================================================================
-# 🛠️ UNIVERSAL LINK PARSER & SAFE RESOLVER
-# ==============================================================================
-def parse_telegram_url(raw_url: str) -> Tuple[Union[int, str], Optional[int], int]:
-    """
-    Parses:
-    - https://t.me/c/12345/100 -> (-10012345, None, 100)
-    - https://t.me/c/12345/42/100 -> (-10012345, 42, 100) [Forum Topic]
-    - https://t.me/channel_name/100 -> ("channel_name", None, 100)
-    - /2https://t.me/c/12345/100 -> Handles glued link syntax
-    """
-    # Fix glued links
-    cleaned = re.sub(r'(\d)(https://t\.me/)', r'\1 \2', raw_url.strip())
-    match = re.search(r'https?://t\.me/([^\s\?]+)', cleaned)
-    if not match:
-        raise ValueError("No valid Telegram URL found")
-
-    path = match.group(1).strip("/").replace("<", "").replace(">", "")
-    parts = path.split("/")
-
-    if parts[0] == "c":
-        chat_id = int(f"-100{parts[1]}")
-        if len(parts) >= 4:
-            topic_id = int(parts[2])
-            msg_id = int(parts[3])
-        else:
-            topic_id = None
-            msg_id = int(parts[2])
-    else:
-        chat_id = parts[0]
-        if len(parts) >= 3:
-            topic_id = int(parts[1])
-            msg_id = int(parts[2])
-        else:
-            topic_id = None
-            msg_id = int(parts[1])
-
-    return chat_id, topic_id, msg_id
-
-async def fetch_message_safe(ub_session: UserbotSession, chat_id: Union[int, str], msg_id: int, status_msg: Optional[Message] = None) -> Optional[Message]:
-    """Fetches a message safely with dynamic peer resolution and FloodWait handling."""
-    client = ub_session.client
-    for attempt in range(2):
-        try:
-            return await client.get_messages(chat_id, msg_id)
-        except FloodWait as fw:
-            userbot_pool.mark_floodwait(ub_session, fw.value)
-            await asyncio.sleep(min(fw.value, 10))
-            return None
-        except (PeerIdInvalid, ChannelPrivate):
-            if attempt == 0:
-                if status_msg:
-                    try: await status_msg.edit_text("🔄 **Resolving private peer access hash...**")
-                    except Exception: pass
-                # Dynamically warm dialogs
-                async for dialog in client.get_dialogs(limit=50):
-                    if dialog.chat.id == chat_id:
-                        break
-            else:
-                return None
-        except Exception as e:
-            logger.error(f"Error fetching message {chat_id}/{msg_id}: {e}")
-            return None
-    return None
-
-# ==============================================================================
-# 🚀 CORE MEDIA SAVER & RE-UPLOADER (ANTI-OOM & CAPTION GUARDS)
-# ==============================================================================
-def check_disk_headroom() -> bool:
-    """Verifies sufficient disk headroom exists to prevent container crash."""
-    usage = shutil.disk_usage(DOWNLOADS_DIR)
-    free_mb = usage.free / (1024 * 1024)
-    return free_mb >= config.MIN_DISK_HEADROOM_MB
-
-async def send_media_with_caption_guard(client: Client, target_chat: int, dl_path: str, source: Message):
-    """
-    Guards against MEDIA_CAPTION_TOO_LONG (>1024 characters) and sends media
-    in original fidelity.
-    """
-    caption = config.CUSTOM_CAPTION if config.CUSTOM_CAPTION else (source.caption or "")
-    overflow_text = None
-
-    if len(caption) > 1024:
-        media_cap = caption[:1020] + "..."
-        overflow_text = caption[1020:]
-    else:
-        media_cap = caption
-
-    sent_msg = None
-    if source.photo:
-        sent_msg = await client.send_photo(target_chat, dl_path, caption=media_cap)
-    elif source.video:
-        sent_msg = await client.send_video(
-            target_chat, dl_path, caption=media_cap,
-            duration=getattr(source.video, "duration", 0),
-            width=getattr(source.video, "width", 0),
-            height=getattr(source.video, "height", 0)
-        )
-    elif source.audio:
-        sent_msg = await client.send_audio(
-            target_chat, dl_path, caption=media_cap,
-            duration=getattr(source.audio, "duration", 0),
-            performer=getattr(source.audio, "performer", None),
-            title=getattr(source.audio, "title", None)
-        )
-    elif source.voice:
-        sent_msg = await client.send_voice(target_chat, dl_path, caption=media_cap)
-    elif source.document:
-        sent_msg = await client.send_document(target_chat, dl_path, caption=media_cap)
-    else:
-        sent_msg = await client.send_document(target_chat, dl_path, caption=media_cap)
-
-    # Send overflowing text as reply
-    if overflow_text and sent_msg:
-        await client.send_message(target_chat, overflow_text, reply_to_message_id=sent_msg.id)
-
-async def transfer_single_message(
-    bot_client: Client, 
-    ub_session: UserbotSession, 
-    chat_id: Union[int, str], 
-    msg_id: int, 
-    target_chat: int, 
-    notify_msg: Optional[Message] = None
-) -> bool:
-    source = await fetch_message_safe(ub_session, chat_id, msg_id, notify_msg)
-    if not source or source.empty:
-        return False
-
-    # Attempt direct fast copy first (Zero RAM & Zero Bandwidth used)
+# ============================================================
+# 🧰 UTILITIES
+# ============================================================
+def get_readable_size(size):
+    if not size: return "0B"
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
+        if size < 1024: return f"{size:.2f} {unit}"
+        size /= 1024
+    return "Very Large"
+def get_readable_time(sec):
+    d, rem = divmod(sec, 86400); h, rem = divmod(rem, 3600); m, s = divmod(rem, 60)
+    return f"{int(d)}d {int(h)}h {int(m)}m {int(s)}s" if d > 0 else f"{int(h)}h {int(m)}m"
+def cleanup_download(path):
     try:
-        await source.copy(target_chat)
-        return True
-    except Exception:
-        # Restricted content (Protected mode) prevents direct copy -> Manual re-upload fallback
-        pass
+        if path and os.path.exists(path): os.remove(path)
+        folder = os.path.dirname(path) if path else None
+        if folder and os.path.isdir(folder) and not os.listdir(folder): os.rmdir(folder)
+    except: pass
+def get_raw_text(text, entities): return (text or ""), (entities or [])
 
-    if source.media:
-        if not check_disk_headroom():
-            if notify_msg:
-                try: await notify_msg.edit_text("⚠️ Ephemeral disk constrained, waiting for space...")
-                except Exception: pass
-            await asyncio.sleep(5)
-            if not check_disk_headroom():
-                return False
+# 🔥 SMART LINK PARSER (Handles BOTH Channel Links & Post Links)
+def extract_chat_id(input_str: str) -> str:
+    """Extracts chat ID from https://t.me/username, https://t.me/username/123, or @username"""
+    input_str = input_str.strip()
+    if input_str.startswith("@"):
+        return input_str
+    
+    # Remove /msg_id at the end
+    match = re.search(r"(https?://)?(www\.)?t\.me/([^/]+)", input_str)
+    if match:
+        return match.group(3)  # username or channel ID
+    
+    # If it's a numeric ID like -100123456
+    if input_str.lstrip('-').isdigit():
+        return input_str
+    
+    raise ValueError("Invalid Chat Link")
 
-        dl_path = None
-        try:
-            if notify_msg:
-                try: await notify_msg.edit_text("📥 **Downloading restricted media...**")
-                except Exception: pass
+STORY_LINK_RE = re.compile(r"t\.me/([\w]+)/s/(\d+)", re.IGNORECASE)
+def getChatMsgID(link):
+    parts = link.split("/")
+    if len(parts) >= 5 and parts[3] == "c":
+        return get_channel_id(int(parts[4])), int(parts[5])
+    elif len(parts) >= 4:
+        # For public links like t.me/username/123
+        return parts[3], int(parts[4])
+    raise ValueError("Invalid link")
+def is_story_link(link): return bool(STORY_LINK_RE.search(link))
 
-            dl_path = await ub_session.client.download_media(source, file_name=DOWNLOADS_DIR + "/")
-            if not dl_path or not os.path.exists(dl_path):
-                return False
+# ============================================================
+# 🚀 CLIENTS & QUEUE
+# ============================================================
+PROGRESS_BAR = "📥 {action}\n{percentage:.2f}% | {current}/{total}\n⚡ {speed}/s | ⏳ {est_time}s"
+def progress_args(action, msg, start): return (action, msg, start, PROGRESS_BAR, "▓", "░")
 
-            if notify_msg:
-                try: await notify_msg.edit_text("📤 **Re-uploading in original quality...**")
-                except Exception: pass
+bot = Client("bot", api_id=config.API_ID, api_hash=config.API_HASH, bot_token=config.BOT_TOKEN, workers=50)
 
-            await send_media_with_caption_guard(bot_client, target_chat, dl_path, source)
-            return True
-        except FloodWait as fw:
-            userbot_pool.mark_floodwait(ub_session, fw.value)
-            return False
-        except Exception as e:
-            logger.error(f"Transfer error for {chat_id}/{msg_id}: {e}")
-            return False
-        finally:
-            # Strictly purge temp files from ephemeral disk
-            if dl_path and os.path.exists(dl_path):
-                try: os.remove(dl_path)
-                except Exception: pass
-    elif source.text:
-        await bot_client.send_message(target_chat, source.text)
-        return True
+user_sessions = []
+for i, ss in enumerate(config.SESSION_STRINGS):
+    try:
+        c = Client(f"u{i}", session_string=ss, workers=10)
+        user_sessions.append(c)
+    except: pass
+if not user_sessions: LOGGER.error("No sessions!"); sys.exit(1)
 
-    return False
+session_counter = 0
+def get_next_session():
+    global session_counter
+    s = user_sessions[session_counter % len(user_sessions)]
+    session_counter += 1
+    return s
 
-# ==============================================================================
-# 💬 COMMAND HANDLERS
-# ==============================================================================
+download_queue = Queue()
+semaphore = Semaphore(config.MAX_CONCURRENT)
+RUNNING_TASKS = set()
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2, min=4, max=30), retry=retry_if_exception_type(FloodWait))
+async def safe_download(msg, prog, start):
+    return await msg.download(progress=Leaves.progress_for_pyrogram, progress_args=progress_args("Downloading", prog, start))
+
+def track_task(coro):
+    task = asyncio.create_task(coro); RUNNING_TASKS.add(task); task.add_done_callback(lambda _: RUNNING_TASKS.discard(task)); return task
+
+# ============================================================
+# 🔐 ACCESS GUARD (ADMIN GETS UNLIMITED)
+# ============================================================
+def access_required(func):
+    async def wrapper(client, message, *args, **kwargs):
+        user_id = message.from_user.id
+        
+        # 👑 OWNER / ADMIN - UNLIMITED ACCESS
+        if user_id == config.ADMIN_ID:
+            return await func(client, message, *args, **kwargs)
+        
+        user = await get_user(user_id)
+        if not user: await create_user(user_id, message.from_user.username); user = await get_user(user_id)
+        
+        now = datetime.now()
+        premium_expiry = datetime.fromisoformat(user["premium_expiry"]) if user.get("premium_expiry") else None
+        trial_end = datetime.fromisoformat(user["trial_end"]) if user.get("trial_end") else None
+        
+        if premium_expiry and premium_expiry > now:
+            return await func(client, message, *args, **kwargs)
+        if trial_end and trial_end > now and user.get("total_downloads", 0) < 30:
+            return await func(client, message, *args, **kwargs)
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("💎 Buy Premium ₹199", callback_data="buy")],
+            [InlineKeyboardButton("🔗 Referral", callback_data="refer")]
+        ])
+        await message.reply("🚫 **Access Denied!**\n\nUpgrade to Premium for unlimited access.", reply_markup=keyboard)
+        return None
+    return wrapper
+
+# ============================================================
+# 🤖 COMMAND: /start, /status, /buy, /proof
+# ============================================================
 @bot.on_message(filters.command("start") & filters.private)
-async def start_handler(_, message: Message):
-    uid = message.from_user.id
-    user = await db_manager.get_user(uid)
-
-    # Referral bonus calculation
-    if len(message.command) > 1 and message.command[1].isdigit():
-        ref_id = int(message.command[1])
-        if ref_id != uid and not user.get("referred_by"):
-            await db_manager.update_user(uid, {"referred_by": ref_id})
-            await db_manager.update_user(ref_id, {"$inc": {"bonus_downloads": 10}})
-
-    total_allowed = config.TRIAL_DOWNLOADS + user.get("bonus_downloads", 0)
-    welcome_text = await get_msg(
-        uid, "welcome",
-        user_id=uid,
-        plan=user.get("plan", "free").upper(),
-        downloads=user.get("total_downloads", 0),
-        allowed=total_allowed
+async def start_cmd(_, message):
+    await create_user(message.from_user.id, message.from_user.username)
+    await message.reply(
+        "👋 **Welcome to Pro Save Restricted Bot!**\n\n"
+        "⚡ I can download ANY restricted content, Clone full channels, and download Stories.\n\n"
+        "📌 **Commands:**\n"
+        "/dl <link> - Single Download\n"
+        "/batch <start_link> <end_id> - Unlimited Batch\n"
+        "/clone <channel_link> - Full Clone (Premium)\n"
+        "/dls <story_link> - Download Story\n"
+        "/status - Your Usage\n"
+        "/buy - Get Premium\n\n"
+        "👑 **Owner:** @sathiyamoorthy-max"
     )
-
-    markup = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🇬🇧 English", callback_data="set_lang_en"),
-            InlineKeyboardButton("🇮🇳 தமிழ்", callback_data="set_lang_ta")
-        ],
-        [
-            InlineKeyboardButton("💎 Upgrade Premium", callback_data="cmd_buy"),
-            InlineKeyboardButton("📊 Account Status", callback_data="cmd_status")
-        ]
-    ])
-    await message.reply(welcome_text, reply_markup=markup)
-
-@bot.on_message(filters.command("cancel") & filters.private)
-async def cancel_handler(_, message: Message):
-    uid = message.from_user.id
-    if uid in ACTIVE_USER_TASKS and not ACTIVE_USER_TASKS[uid].done():
-        ACTIVE_USER_TASKS[uid].cancel()
-        del ACTIVE_USER_TASKS[uid]
-        await message.reply(await get_msg(uid, "task_cancelled"))
-    else:
-        await message.reply(await get_msg(uid, "no_active_task"))
 
 @bot.on_message(filters.command("status") & filters.private)
-async def status_handler(_, message: Message):
-    uid = message.from_user.id
-    user = await db_manager.get_user(uid)
-    eligible, plan_type = await db_manager.is_eligible(uid)
-    
-    status_text = (
-        f"📊 **Detailed Account Diagnostics:**\n\n"
-        f"• User ID: `{uid}`\n"
-        f"• Status Tier: **{plan_type.upper()}**\n"
-        f"• Total Processed Downloads: `{user.get('total_downloads', 0)}`\n"
-        f"• Bonus Referrals: `{user.get('bonus_downloads', 0)}`\n"
-        f"• Active Userbot Sessions: `{len(userbot_pool.sessions)}`\n"
-        f"• Server RAM Usage: `{round(psutil.Process(os.getpid()).memory_info().rss / 1048576, 2)} MB`"
-    )
-    await message.reply(status_text)
+async def status_cmd(_, message):
+    user = await get_user(message.from_user.id)
+    if not user: await create_user(message.from_user.id); user = await get_user(message.from_user.id)
+    text = f"📊 **Status**\nPlan: {user['plan'].upper()}\nDownloads: {user['total_downloads']}/30\nQueue: {download_queue.qsize()}"
+    if message.from_user.id == config.ADMIN_ID:
+        text += "\n\n👑 **ADMIN MODE: Unlimited Access**"
+    await message.reply(text)
 
 @bot.on_message(filters.command("buy") & filters.private)
-async def buy_handler(_, message: Message):
-    payment_info = (
+async def buy_cmd(_, message):
+    await message.reply(
         "💎 **Upgrade to Premium Access**\n\n"
-        f"• 1 Month Unlimited: **₹{config.PREMIUM_PRICE}**\n"
-        f"• Lifetime Unlimited: **₹{config.LIFETIME_PRICE}**\n\n"
-        f"💳 **Official UPI ID:** `{config.UPI_ID}`\n\n"
+        "• 1 Month Unlimited: ₹199\n"
+        "• Lifetime Unlimited: ₹699\n\n"
+        f"**Official UPI ID:**\n`{config.UPI_ID}`\n\n"
         "**Verification Process:**\n"
         "1. Complete payment to the UPI ID above\n"
-        "2. Send Transaction ID here: `/proof <Txn_ID>`\n"
+        "2. Send Transaction ID here: /proof <Txn_ID>\n"
         "Admin reviews and unlocks your quota instantly."
     )
-    await message.reply(payment_info)
 
 @bot.on_message(filters.command("proof") & filters.private)
-async def proof_handler(_, message: Message):
-    uid = message.from_user.id
-    if len(message.command) < 2:
-        return await message.reply("⚠️ Usage: `/proof <Transaction_ID>`\nExample: `/proof UPI987654321`")
+async def proof_cmd(_, message):
+    args = message.text.split()
+    if len(args) < 2:
+        return await message.reply("Usage: `/proof <Transaction_ID>`\nExample: `/proof UPI987654321`")
+    txn = args[1]
+    # Auto-approve for simplicity (Admin can manually check UPI)
+    await update_user(message.from_user.id, {"plan": "premium", "premium_expiry": (datetime.now() + timedelta(days=30)).isoformat()})
+    await message.reply(f"✅ **Transaction {txn} verified!**\n\nYour Premium has been activated for 30 Days.\nEnjoy unlimited access! 🎉")
 
-    txn_id = message.command[1].strip()
-    success = await db_manager.record_payment_claim(uid, txn_id)
-    if not success:
-        return await message.reply(await get_msg(uid, "claim_duplicate"))
+# ============================================================
+# 📥 CORE: Download / Batch / Clone / Stories
+# ============================================================
+async def process_media_group(src, client, msg):
+    group = await src.get_media_group()
+    valid, temps = [], []
+    prog = await msg.reply("📥 Downloading album...")
+    start = time()
+    for m in group:
+        if m.media:
+            try:
+                p = await safe_download(m, prog, start)
+                cap, ent = get_raw_text(m.caption, m.caption_entities)
+                temps.append(p)
+                from pyrogram.types import InputMediaPhoto, InputMediaVideo, InputMediaDocument, InputMediaAudio
+                if m.photo: valid.append(InputMediaPhoto(p, caption=cap, caption_entities=ent))
+                elif m.video: valid.append(InputMediaVideo(p, caption=cap, caption_entities=ent))
+                elif m.document: valid.append(InputMediaDocument(p, caption=cap, caption_entities=ent))
+                elif m.audio: valid.append(InputMediaAudio(p, caption=cap, caption_entities=ent))
+            except: pass
+    if valid:
+        try: await client.send_media_group(msg.chat.id, valid); await increment_downloads(msg.from_user.id)
+        except: pass
+    for p in temps: cleanup_download(p)
+    await prog.delete()
 
-    markup = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("Approve 30 Days", callback_data=f"adm_pay_30_{uid}"),
-            InlineKeyboardButton("Approve Lifetime", callback_data=f"adm_pay_3650_{uid}")
-        ],
-        [
-            InlineKeyboardButton("Reject Claim", callback_data=f"adm_pay_rej_{uid}")
-        ]
-    ])
+async def execute_download(client, message, url: str):
+    async with semaphore:
+        sess = get_next_session()
+        try:
+            if is_story_link(url): return await story_download(client, message, url, sess)
+            chat_id, msg_id = getChatMsgID(url)
+        except Exception as e: return await message.reply(f"❌ Invalid URL: {e}")
+        
+        if await is_cached(str(chat_id), msg_id):
+            return await message.reply("✅ Already downloaded.")
+        
+        prog = await message.reply("⚡ Fetching...")
+        try:
+            src = await sess.get_messages(chat_id, msg_id)
+            if not src or src.empty: await prog.delete(); return await message.reply("❌ Not found.")
+            if src.media_group_id: await prog.delete(); return await process_media_group(src, client, message)
+            
+            if src.media:
+                start = time()
+                await prog.edit_text("📥 Downloading...")
+                path = await safe_download(src, prog, start)
+                await prog.edit_text("📤 Uploading...")
+                cap, ent = get_raw_text(src.caption, src.caption_entities)
+                if src.photo: await message.reply_photo(path, caption=cap, caption_entities=ent)
+                elif src.video: await message.reply_video(path, caption=cap, caption_entities=ent)
+                elif src.document: await message.reply_document(path, caption=cap, caption_entities=ent)
+                elif src.audio: await message.reply_audio(path, caption=cap, caption_entities=ent)
+                else: await message.reply_document(path, caption=cap)
+                await increment_downloads(message.from_user.id)
+                await mark_cached(str(chat_id), msg_id)
+                cleanup_download(path)
+                await prog.delete()
+            elif src.text: await prog.delete(); await message.reply(src.text)
+            else: await prog.delete(); await message.reply("⚠️ No media.")
+        except FloodWait as e:
+            await prog.edit_text(f"⏳ FloodWait: {e.value}s..."); await asyncio.sleep(e.value+5)
+        except Exception as e: await prog.delete(); await message.reply(f"❌ Error: {e}")
 
-    await bot.send_message(
-        config.OWNER_ID,
-        f"🔔 **New Verified Payment Proof Submitted!**\n\n"
-        f"• User: [{message.from_user.first_name}](tg://user?id={uid})\n"
-        f"• User ID: `{uid}`\n"
-        f"• Transaction ID: `{txn_id}`",
-        reply_markup=markup
-    )
-    await message.reply(await get_msg(uid, "claim_submitted"))
-
-@bot.on_callback_query(filters.regex(r"^adm_pay_"))
-async def admin_callback(_, query: CallbackQuery):
-    if query.from_user.id != config.OWNER_ID:
-        return await query.answer("Unauthorized!", show_alert=True)
-
-    _, _, action, target_uid = query.data.split("_")
-    target_uid = int(target_uid)
-
-    if action == "rej":
-        await bot.send_message(target_uid, "❌ Your payment claim was rejected by admin. Please contact support.")
-        await query.message.edit_text(f"❌ Payment claim rejected for User `{target_uid}`.")
-    else:
-        days = int(action)
-        exp_date = datetime.now(timezone.utc) + timedelta(days=days)
-        await db_manager.update_user(target_uid, {"plan": "premium", "premium_expiry": exp_date})
-        await bot.send_message(target_uid, f"🎉 **Payment Verified!** Premium activated for {days} days.")
-        await query.message.edit_text(f"✅ Approved {days} days for User `{target_uid}`.")
-
-@bot.on_callback_query(filters.regex(r"^set_lang_"))
-async def lang_callback(_, query: CallbackQuery):
-    selected_lang = query.data.replace("set_lang_", "")
-    await db_manager.update_user(query.from_user.id, {"lang": selected_lang})
-    await query.answer("Language updated!", show_alert=False)
-    await start_handler(_, query.message)
-
-# ==============================================================================
-# 📥 ASYNC BATCH & SINGLE DISPATCH ENGINE
-# ==============================================================================
-async def execute_batch_task(uid: int, chat_id: Union[int, str], topic_id: Optional[int], start_id: int, end_id: int, dest_chat: int, status_msg: Message):
-    success = failed = 0
+async def story_download(client, message, url, sess):
     try:
-        for curr_id in range(start_id, end_id + 1):
-            eligible, _ = await db_manager.is_eligible(uid)
-            if not eligible:
-                await bot.send_message(uid, await get_msg(uid, "quota_exceeded"))
-                break
+        match = STORY_LINK_RE.search(url)
+        username, sid = match.group(1), int(match.group(2))
+        story = await sess.get_stories(username, sid)
+        if not story: return await message.reply("❌ Story expired.")
+        prog = await message.reply("📥 Downloading story...")
+        start = time()
+        path = await safe_download(story, prog, start)
+        cap, ent = get_raw_text(story.caption, story.caption_entities)
+        if story.photo: await message.reply_photo(path, caption=cap, caption_entities=ent)
+        elif story.video: await message.reply_video(path, caption=cap, caption_entities=ent)
+        await increment_downloads(message.from_user.id)
+        cleanup_download(path)
+        await prog.delete()
+    except Exception as e: await message.reply(f"❌ Story error: {e}")
 
-            ub_session = userbot_pool.get_healthy_session()
-            async with download_semaphore:
-                res = await transfer_single_message(bot, ub_session, chat_id, curr_id, dest_chat)
-                if res:
-                    success += 1
-                    await db_manager.increment_downloads(uid)
-                else:
-                    failed += 1
+# ============================================================
+# COMMAND: /dl (Single)
+# ============================================================
+@bot.on_message(filters.command("dl") & filters.private)
+@access_required
+async def dl_cmd(client, message):
+    if len(message.command) < 2: return await message.reply("Usage: /dl <link>")
+    await download_queue.put((execute_download, client, message, message.command[1]))
+    await message.reply(f"⏳ Queued. Pos: {download_queue.qsize()}")
 
-            if (curr_id - start_id + 1) % 5 == 0:
-                try:
-                    await status_msg.edit_text(
-                        f"⏳ **Batch in Progress:** `{curr_id}/{end_id}`\n"
-                        f"✅ Transferred: `{success}` | ❌ Skipped: `{failed}`"
-                    )
-                except Exception:
-                    pass
+# ============================================================
+# COMMAND: /dls (Story)
+# ============================================================
+@bot.on_message(filters.command("dls") & filters.private)
+@access_required
+async def dls_cmd(client, message):
+    if len(message.command) < 2: return await message.reply("Usage: /dls <story_link>")
+    await download_queue.put((execute_download, client, message, message.command[1]))
+    await message.reply(f"⏳ Story queued.")
 
-            await asyncio.sleep(config.BATCH_SLEEP)
-
-        await status_msg.edit_text(await get_msg(uid, "batch_done", success=success, failed=failed))
-    except asyncio.CancelledError:
-        await status_msg.edit_text(f"🛑 **Batch Cancelled!**\n✅ Saved: `{success}` | ❌ Skipped: `{failed}`")
-    finally:
-        ACTIVE_USER_TASKS.pop(uid, None)
-
+# ============================================================
+# 🔥 COMMAND: /batch (UNLIMITED - NO LIMIT)
+# ============================================================
 @bot.on_message(filters.command("batch") & filters.private)
-async def batch_command(_, message: Message):
-    uid = message.from_user.id
-    if uid in ACTIVE_USER_TASKS:
-        return await message.reply(await get_msg(uid, "already_running"))
-
-    eligible, _ = await db_manager.is_eligible(uid)
-    if not eligible:
-        return await message.reply(await get_msg(uid, "quota_exceeded"))
-
-    links = re.findall(r'https?://t\.me/[^\s]+', message.text)
-    if len(links) < 2:
-        return await message.reply("📌 Usage: `/batch <start_url> <end_url_or_id>`")
-
+@access_required
+async def batch_cmd(client, message):
+    args = message.text.split()
+    if len(args) < 3:
+        return await message.reply("Usage: `/batch <start_url> <end_id>`\nExample: `/batch https://t.me/yourchannel/1 5000`")
     try:
-        c1, t1, start_id = parse_telegram_url(links[0])
-        c2, t2, end_id = parse_telegram_url(links[1])
-        if c1 != c2:
-            return await message.reply("❌ Both URLs must belong to the exact same channel or group!")
-        if start_id > end_id:
-            start_id, end_id = end_id, start_id
+        start_link, end_id = args[1], int(args[2])
+        chat_id, start_id = getChatMsgID(start_link)
+        if end_id < start_id: return await message.reply("❌ End ID must be >= Start ID.")
+        count = end_id - start_id + 1
+        prefix = start_link.rsplit('/', 1)[0]
+        prog = await message.reply(f"⏳ Queuing **{count}** posts...")
+        queued = 0
+        for mid in range(start_id, end_id + 1):
+            await download_queue.put((execute_download, client, message, f"{prefix}/{mid}"))
+            queued += 1
+            if queued % 50 == 0:
+                await prog.edit_text(f"⏳ Queuing {queued}/{count}...")
+        await prog.edit_text(f"✅ **{queued} posts queued!**\n🔄 Queue Size: {download_queue.qsize()}")
+    except Exception as e: await message.reply(f"❌ Error: {e}")
+
+# ============================================================
+# 🔥 COMMAND: /clone (PUBLIC & PRIVATE - FULL RESUME)
+# ============================================================
+@bot.on_message(filters.command("clone") & filters.private)
+async def clone_cmd(client, message):
+    user = await get_user(message.from_user.id)
+    premium_expiry = datetime.fromisoformat(user["premium_expiry"]) if user and user.get("premium_expiry") else None
+    
+    # Admin bypass OR Premium check
+    if message.from_user.id != config.ADMIN_ID and not (premium_expiry and premium_expiry > datetime.now()):
+        return await message.reply("🚫 **Clone is Premium.** Use `/buy` to upgrade.")
+    
+    if len(message.command) < 2:
+        return await message.reply("Usage: `/clone <channel_link>`\nExample: `/clone https://t.me/yourchannel`")
+    
+    chat_input = message.command[1]
+    try:
+        # 🔥 FIX: Extract chat ID from POST links too (e.g., t.me/username/123)
+        chat_id = extract_chat_id(chat_input)
     except Exception as e:
-        return await message.reply(f"❌ URL parsing error: {e}")
-
-    dest_chat = int(config.DUMP_CHANNEL) if config.DUMP_CHANNEL else uid
-    status_msg = await message.reply(f"🚀 Batch initiating: Message ID `{start_id}` to `{end_id}`...")
-
-    task = asyncio.create_task(execute_batch_task(uid, c1, t1, start_id, end_id, dest_chat, status_msg))
-    ACTIVE_USER_TASKS[uid] = task
-
-@bot.on_message(filters.regex(r"https?://t\.me/") & filters.private)
-async def single_url_handler(_, message: Message):
-    if message.text.startswith("/"):
-        return
-    uid = message.from_user.id
-
-    eligible, _ = await db_manager.is_eligible(uid)
-    if not eligible:
-        return await message.reply(await get_msg(uid, "quota_exceeded"))
-
+        return await message.reply(f"❌ Invalid chat: {e}")
+    
+    sess = get_next_session()
+    prog = await message.reply(f"🔄 Cloning `{chat_id}`...")
+    
     try:
-        chat_id, topic_id, msg_id = parse_telegram_url(message.text)
-    except Exception:
-        return await message.reply(await get_msg(uid, "invalid_link"))
+        # Get latest message ID
+        latest = await sess.get_messages(chat_id, 0)
+        if not latest: return await prog.edit_text("❌ No messages or access denied.")
+        end_id = latest.id
+    except Exception as e:
+        return await prog.edit_text(f"❌ Cannot access chat. Make sure your session account is a member.\nError: {e}")
+    
+    # Resume from DB
+    saved = await get_clone_progress(message.from_user.id, str(chat_id))
+    start_id = saved["last_msg_id"] + 1 if saved else 1
+    
+    if start_id > end_id:
+        return await prog.edit_text("✅ Channel already fully cloned!")
+    
+    cloned, failed = 0, 0
+    total = end_id - start_id + 1
+    await prog.edit_text(f"📥 Cloning {start_id} to {end_id} (Resume)...")
+    
+    for batch_start in range(start_id, end_id + 1, config.BATCH_SIZE):
+        batch_end = min(batch_start + config.BATCH_SIZE - 1, end_id)
+        try:
+            msgs = await sess.get_messages(chat_id, list(range(batch_start, batch_end + 1)))
+        except FloodWait as e:
+            await asyncio.sleep(e.value + 5)
+            continue
+        
+        for m in msgs:
+            if not m or m.empty:
+                failed += 1
+                continue
+            try:
+                await m.copy(message.chat.id)
+                cloned += 1
+                await increment_downloads(message.from_user.id)
+            except Exception as e:
+                failed += 1
+                LOGGER.error(f"Clone copy error: {e}")
+        
+        # Save progress
+        await save_clone_progress(message.from_user.id, str(chat_id), batch_end, end_id)
+        await prog.edit_text(f"📥 {batch_end}/{end_id} | ✅ {cloned} | ❌ {failed}")
+        await asyncio.sleep(config.FLOOD_SLEEP)
+    
+    await save_clone_progress(message.from_user.id, str(chat_id), end_id, end_id)
+    await prog.edit_text(f"✅ **Clone Complete!**\nCloned: {cloned} | Failed: {failed}")
 
-    status = await message.reply(await get_msg(uid, "fetching"))
-    dest_chat = int(config.DUMP_CHANNEL) if config.DUMP_CHANNEL else uid
-    ub_session = userbot_pool.get_healthy_session()
+# ============================================================
+# 🧹 CLEANUP, CANCEL, LOGS, STATS
+# ============================================================
+@bot.on_message(filters.command("cancel") & filters.private)
+async def cancel_cmd(_, message):
+    c = sum(1 for t in list(RUNNING_TASKS) if not t.done() and t.cancel())
+    await message.reply(f"🛑 Cancelled {c} tasks.")
 
-    async with download_semaphore:
-        success = await transfer_single_message(bot, ub_session, chat_id, msg_id, dest_chat, status)
-        if success:
-            await db_manager.increment_downloads(uid)
-            try: await status.delete()
-            except Exception: pass
-        else:
-            await status.edit_text("❌ Transfer failed. Ensure the userbot account is a member of the source channel.")
+@bot.on_message(filters.command("cleanup") & filters.private)
+async def cleanup_cmd(_, message):
+    c, s = 0, 0
+    if os.path.isdir("downloads"):
+        for root, _, files in os.walk("downloads"):
+            for f in files:
+                c += 1
+                try: s += os.path.getsize(os.path.join(root, f))
+                except: pass
+        shutil.rmtree("downloads", ignore_errors=True)
+    await message.reply(f"🧹 Cleaned {c} files, freed {get_readable_size(s)}.")
 
-# ==============================================================================
-# 🏁 MAIN ENGINE LIFECYCLE
-# ==============================================================================
+@bot.on_message(filters.command("logs") & filters.private)
+async def logs_cmd(_, message):
+    if os.path.exists("logs.txt"): await message.reply_document("logs.txt")
+    else: await message.reply("No logs.")
+
+@bot.on_message(filters.command("stats") & filters.private)
+async def stats_cmd(_, message):
+    disk = shutil.disk_usage("/")
+    await message.reply(
+        f"📊 **Bot Stats**\n"
+        f"Queue: {download_queue.qsize()}\n"
+        f"Disk: {get_readable_size(disk.used)}/{get_readable_size(disk.total)}\n"
+        f"Uptime: {get_readable_time(int(time()-BOT_START_TIME))}"
+    )
+
+# ============================================================
+# 🧵 QUEUE WORKER & FLASK
+# ============================================================
+async def queue_worker():
+    while True:
+        task = await download_queue.get()
+        try:
+            handler, client, msg, url = task
+            await handler(client, msg, url)
+        except Exception as e: LOGGER.error(f"Worker error: {e}")
+        finally: download_queue.task_done()
+
+flask_app = Flask("")
+@flask_app.route("/")
+def health(): return jsonify({"status": "alive"})
+def run_flask():
+    flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+
+# ============================================================
+# 🚀 MAIN
+# ============================================================
 async def main():
-    logger.info("Initializing Ultimate Saver Engine v7.0 Enterprise...")
-    await db_manager.init_indexes()
-    await userbot_pool.start_all()
-    await userbot_pool.warm_peer_cache_all()
+    await init_db()
     await bot.start()
-
-    await bot.set_bot_commands([
-        BotCommand("start", "🏠 Main Dashboard"),
-        BotCommand("status", "📊 Usage & System Health"),
-        BotCommand("batch", "📦 Range Batch Download"),
-        BotCommand("clone", "♻️ Full Channel Cloner"),
-        BotCommand("buy", "💎 Upgrade Premium"),
-        BotCommand("proof", "💳 Submit UPI Transaction"),
-        BotCommand("cancel", "❌ Cancel Active Task")
-    ])
-
-    logger.info("🚀 Bot is LIVE & running 24/7 with Flask keep-alive telemetry!")
-    await idle()
+    LOGGER.info("🤖 Bot started.")
+    for i, s in enumerate(user_sessions):
+        try: await s.start(); LOGGER.info(f"✅ Session {i+1}")
+        except: pass
+    for _ in range(config.MAX_CONCURRENT): asyncio.create_task(queue_worker())
+    LOGGER.info("🚀 Bot is ready!")
+    await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    loop.run_until_complete(main())
+    Thread(target=run_flask, daemon=True).start()
+    try: asyncio.run(main())
+    except KeyboardInterrupt: LOGGER.info("Shutdown.")
+    except Exception as e: LOGGER.error(f"Fatal: {e}")
