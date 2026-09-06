@@ -1,5 +1,5 @@
 # ============================================================
-# ðŸŒ ULTIMATE TELEGRAM RESTRICTED CONTENT SAVER & CLONER v6.0
+# 🌍 ULTIMATE TELEGRAM RESTRICTED CONTENT SAVER & CLONER v6.0
 # Features:
 # - Multi-Session Userbot Rotator (Prevents FloodWait / Bans)
 # - MongoDB Persistent Cloud Storage (No Data Loss on Render/Koyeb)
@@ -46,7 +46,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 load_dotenv("config.env")
 
 # ============================================================
-# âš™ï¸ CONFIGURATION
+# ⚙️ CONFIGURATION
 # ============================================================
 class Config:
     API_ID = int(os.getenv("API_ID", "0"))
@@ -72,11 +72,11 @@ config = Config()
 BOT_START_TIME = time()
 
 if not all([config.API_ID, config.API_HASH, config.BOT_TOKEN, config.MONGO_URL, config.OWNER_ID, config.SESSION_STRINGS]):
-    print("âŒ Critical Config Missing: Check API_ID, API_HASH, BOT_TOKEN, MONGO_URL, OWNER_ID, and SESSION_STRINGS!")
+    print("❌ Critical Config Missing: Check API_ID, API_HASH, BOT_TOKEN, MONGO_URL, OWNER_ID, and SESSION_STRINGS!")
     sys.exit(1)
 
 # ============================================================
-# ðŸ“ LOGGING
+# 📝 LOGGING
 # ============================================================
 logging.basicConfig(
     level=logging.INFO,
@@ -91,7 +91,7 @@ logging.getLogger("pyrogram").setLevel(logging.ERROR)
 logger = logging.getLogger("UltimateBot")
 
 # ============================================================
-# ðŸ—„ï¸ PERSISTENT CLOUD DATABASE (MongoDB)
+# 🗄️ PERSISTENT CLOUD DATABASE (MongoDB)
 # ============================================================
 db_client = AsyncIOMotorClient(config.MONGO_URL)
 db = db_client["telegram_saver_master"]
@@ -135,7 +135,7 @@ async def is_eligible(user_id: int) -> bool:
     return False
 
 # ============================================================
-# ðŸ¤– BOT & USERBOT ROTATOR
+# 🤖 BOT & USERBOT ROTATOR
 # ============================================================
 bot = Client(
     "CentralSaverBot",
@@ -155,7 +155,7 @@ for idx, s_str in enumerate(config.SESSION_STRINGS):
         logger.error(f"Error initializing user session {idx}: {e}")
 
 if not user_clients:
-    logger.error("âŒ No valid user sessions found!")
+    logger.error("❌ No valid user sessions found!")
     sys.exit(1)
 
 session_rotation_index = 0
@@ -170,13 +170,12 @@ download_queue = Queue()
 download_semaphore = Semaphore(config.MAX_CONCURRENT)
 
 # ============================================================
-# ðŸ› ï¸ UTILITY HELPERS
+# 🛠️ UTILITY HELPERS
 # ============================================================
-PROGRESS_BAR = "ðŸ“¥ **{action}**
-ðŸ“Š {percentage:.2f}% | {current}/{total}
-âš¡ Speed: {speed}/s | â³ ETA: {est_time}s"
+PROGRESS_BAR = "📥 **{action}**\n📊 {percentage:.2f}% | {current}/{total}\n⚡ Speed: {speed}/s | ⏳ ETA: {est_time}s"
+
 def progress_args(action, prog_msg, start_time):
-    return (action, prog_msg, start_time, PROGRESS_BAR, "â–“", "â–‘")
+    return (action, prog_msg, start_time, PROGRESS_BAR, "▓", "░")
 
 def parse_tg_link(link: str):
     clean = link.strip().replace("https://t.me/", "")
@@ -216,7 +215,7 @@ def cleanup_file(path: Optional[str]):
         pass
 
 # ============================================================
-# ðŸš€ CORE MEDIA SAVER ENGINE
+# 🚀 CORE MEDIA SAVER ENGINE
 # ============================================================
 async def extract_and_forward(client: Client, userbot: Client, chat_id, msg_id: int, target_chat: int, notify_msg: Optional[Message] = None):
     try:
@@ -254,7 +253,7 @@ async def extract_and_forward(client: Client, userbot: Client, chat_id, msg_id: 
 
         try:
             if notify_msg:
-                try: await notify_msg.edit_text("ðŸ“¤ Re-uploading media to Telegram...")
+                try: await notify_msg.edit_text("📤 Re-uploading media to Telegram...")
                 except Exception: pass
 
             if source.photo:
@@ -278,7 +277,7 @@ async def extract_and_forward(client: Client, userbot: Client, chat_id, msg_id: 
     return False
 
 # ============================================================
-# ðŸ’¬ COMMAND HANDLERS
+# 💬 COMMAND HANDLERS
 # ============================================================
 @bot.on_message(filters.command("start") & filters.private)
 async def start_handler(_, message: Message):
@@ -292,31 +291,18 @@ async def start_handler(_, message: Message):
     total_allowed = config.TRIAL_DOWNLOADS + user.get("bonus_downloads", 0)
     
     welcome_text = (
-        "ðŸš€ **World's Most Advanced Telegram Saver & Cloner v6.0**
-
-"
-        f"ðŸ‘¤ **User:** `{message.from_user.id}`
-"
-        f"â­ **Plan:** `{status_plan}`
-"
-        f"ðŸ“¥ **Quota Used:** `{user.get('total_downloads', 0)}/{total_allowed}`
-
-"
-        "**Available Commands:**
-"
-        "â€¢ Direct Link: Paste any Telegram post link directly
-"
-        "â€¢ `/bdl <start_link> <end_id>` - Safe Batch Downloader
-"
-        "â€¢ `/clone <source_channel> <target_id>` - Full Channel Clone
-"
-        "â€¢ `/analyze @username` - Channel/Bot Function Detector
-"
-        "â€¢ `/status` - Detailed Usage Analytics
-"
-        "â€¢ `/buy` - Unlock Unlimited Access
-"
-        "â€¢ `/cancel` - Stop ongoing tasks"
+        "🚀 **World's Most Advanced Telegram Saver & Cloner v6.0**\n\n"
+        f"👤 **User:** `{message.from_user.id}`\n"
+        f"⭐ **Plan:** `{status_plan}`\n"
+        f"📥 **Quota Used:** `{user.get('total_downloads', 0)}/{total_allowed}`\n\n"
+        "**Available Commands:**\n"
+        "• Direct Link: Paste any Telegram post link directly\n"
+        "• `/bdl <start_link> <end_id>` - Safe Batch Downloader\n"
+        "• `/clone <source_channel> <target_id>` - Full Channel Clone\n"
+        "• `/analyze @username` - Channel/Bot Function Detector\n"
+        "• `/status` - Detailed Usage Analytics\n"
+        "• `/buy` - Unlock Unlimited Access\n"
+        "• `/cancel` - Stop ongoing tasks"
     )
     await message.reply(welcome_text)
 
@@ -325,46 +311,32 @@ async def status_handler(_, message: Message):
     user = await get_user(message.from_user.id)
     now = datetime.now()
     if user.get("plan") == "premium" and user.get("premium_expiry") and user["premium_expiry"] > now:
-        plan_desc = f"â­ Premium (Expires: {user['premium_expiry'].strftime('%d-%b-%Y')})"
+        plan_desc = f"⭐ Premium (Expires: {user['premium_expiry'].strftime('%d-%b-%Y')})"
     else:
         max_free = config.TRIAL_DOWNLOADS + user.get("bonus_downloads", 0)
         plan_desc = f"Free Trial ({user.get('total_downloads', 0)}/{max_free} Used)"
 
     active_tasks = len(RUNNING_TASKS.get(message.from_user.id, []))
     await message.reply(
-        f"ðŸ“Š **Account Status:**
-
-"
-        f"â€¢ Plan: **{plan_desc}**
-"
-        f"â€¢ Active Running Tasks: **{active_tasks}**
-"
-        f"â€¢ Queue Backlog: **{download_queue.qsize()} tasks**"
+        f"📊 **Account Status:**\n\n"
+        f"• Plan: **{plan_desc}**\n"
+        f"• Active Running Tasks: **{active_tasks}**\n"
+        f"• Queue Backlog: **{download_queue.qsize()} tasks**"
     )
 
 # ============================================================
-# ðŸ’³ SECURE ADMIN PAYMENT VERIFICATION ENGINE
+# 💳 SECURE ADMIN PAYMENT VERIFICATION ENGINE
 # ============================================================
 @bot.on_message(filters.command("buy") & filters.private)
 async def buy_handler(_, message: Message):
     payment_info = (
-        "ðŸ’Ž **Upgrade to Premium Membership**
-
-"
-        f"â€¢ 1 Month Unlimited: **â‚¹{config.PREMIUM_PRICE}**
-"
-        f"â€¢ Lifetime Access: **â‚¹{config.LIFETIME_PRICE}**
-
-"
-        f"ðŸ’³ **Pay via UPI ID:** `{config.UPI_ID}`
-
-"
-        "âš ï¸ **Verification Steps:**
-"
-        "1. Send payment to above UPI
-"
-        "2. Send Transaction ID: `/proof <Txn_ID>`
-"
+        "💎 **Upgrade to Premium Membership**\n\n"
+        f"• 1 Month Unlimited: **₹{config.PREMIUM_PRICE}**\n"
+        f"• Lifetime Access: **₹{config.LIFETIME_PRICE}**\n\n"
+        f"💳 **Pay via UPI ID:** `{config.UPI_ID}`\n\n"
+        "⚠️ **Verification Steps:**\n"
+        "1. Send payment to above UPI\n"
+        "2. Send Transaction ID: `/proof <Txn_ID>`\n"
         "Admin will review and unlock instantly."
     )
     await message.reply(payment_info)
@@ -372,8 +344,7 @@ async def buy_handler(_, message: Message):
 @bot.on_message(filters.command("proof") & filters.private)
 async def proof_handler(_, message: Message):
     if len(message.command) < 2:
-        return await message.reply("âš ï¸ Usage: `/proof <Transaction_ID>`
-Example: `/proof UPI123456789`")
+        return await message.reply("⚠️ Usage: `/proof <Transaction_ID>`\nExample: `/proof UPI123456789`")
 
     txn_id = message.command[1].strip()
     uid = message.from_user.id
@@ -390,17 +361,13 @@ Example: `/proof UPI123456789`")
 
     await bot.send_message(
         config.OWNER_ID,
-        f"ðŸ”” **New Payment Claim Received!**
-
-"
-        f"â€¢ User: [{message.from_user.first_name}](tg://user?id={uid})
-"
-        f"â€¢ User ID: `{uid}`
-"
-        f"â€¢ Transaction ID: `{txn_id}`",
+        f"🔔 **New Payment Claim Received!**\n\n"
+        f"• User: [{message.from_user.first_name}](tg://user?id={uid})\n"
+        f"• User ID: `{uid}`\n"
+        f"• Transaction ID: `{txn_id}`",
         reply_markup=markup
     )
-    await message.reply("âœ… Proof submitted successfully! Your account will be activated once verified by the Admin.")
+    await message.reply("✅ Proof submitted successfully! Your account will be activated once verified by the Admin.")
 
 @bot.on_callback_query(filters.regex(r"^adm_pay_"))
 async def admin_payment_callback(_, query: CallbackQuery):
@@ -411,17 +378,17 @@ async def admin_payment_callback(_, query: CallbackQuery):
     target_uid = int(target_uid)
 
     if action == "rej":
-        await bot.send_message(target_uid, "âŒ Your payment verification was rejected. Please contact support.")
-        await query.message.edit_text(f"âŒ Claim rejected for User `{target_uid}`.")
+        await bot.send_message(target_uid, "❌ Your payment verification was rejected. Please contact support.")
+        await query.message.edit_text(f"❌ Claim rejected for User `{target_uid}`.")
     else:
         days = int(action)
         exp_date = datetime.now() + timedelta(days=days)
         await update_user(target_uid, {"plan": "premium", "premium_expiry": exp_date})
-        await bot.send_message(target_uid, f"ðŸŽ‰ **Payment Verified!** Premium activated for {days} days. Enjoy unlimited downloads & cloning!")
-        await query.message.edit_text(f"âœ… Approved {days} days for User `{target_uid}`.")
+        await bot.send_message(target_uid, f"🎉 **Payment Verified!** Premium activated for {days} days. Enjoy unlimited downloads & cloning!")
+        await query.message.edit_text(f"✅ Approved {days} days for User `{target_uid}`.")
 
 # ============================================================
-# ðŸ” BOT & CHANNEL ANALYZER
+# 🔍 BOT & CHANNEL ANALYZER
 # ============================================================
 @bot.on_message(filters.command("analyze") & filters.private)
 async def analyze_handler(client: Client, message: Message):
@@ -429,56 +396,46 @@ async def analyze_handler(client: Client, message: Message):
         return await message.reply("Usage: `/analyze @username_or_link`")
 
     target = message.command[1].strip()
-    prog = await message.reply("ðŸ” Analyzing target entity...")
+    prog = await message.reply("🔍 Analyzing target entity...")
     sess = get_next_session()
 
     try:
         chat = await sess.get_chat(target)
         if chat.type == ChatType.BOT:
             await prog.edit_text(
-                f"ðŸ¤– **Bot Profile Detected:**
-
-"
-                f"â€¢ Name: **{chat.first_name}**
-"
-                f"â€¢ Username: @{chat.username}
-"
-                f"â€¢ ID: `{chat.id}`
-"
-                f"â€¢ Status: Active Telegram Bot"
+                f"🤖 **Bot Profile Detected:**\n\n"
+                f"• Name: **{chat.first_name}**\n"
+                f"• Username: @{chat.username}\n"
+                f"• ID: `{chat.id}`\n"
+                f"• Status: Active Telegram Bot"
             )
         else:
             latest = await sess.get_messages(chat.id, 0)
             total_count = latest.id if latest else 0
             await prog.edit_text(
-                f"ðŸ“Š **Channel Analytics:**
-
-"
-                f"â€¢ Title: **{chat.title}**
-"
-                f"â€¢ Type: `{chat.type.name}`
-"
-                f"â€¢ Total Posts: `{total_count}`
-"
-                f"â€¢ Protected/Restricted: `{chat.has_protected_content or False}`"
+                f"📊 **Channel Analytics:**\n\n"
+                f"• Title: **{chat.title}**\n"
+                f"• Type: `{chat.type.name}`\n"
+                f"• Total Posts: `{total_count}`\n"
+                f"• Protected/Restricted: `{chat.has_protected_content or False}`"
             )
     except Exception as e:
-        await prog.edit_text(f"âŒ Analysis failed: {e}")
+        await prog.edit_text(f"❌ Analysis failed: {e}")
 
 # ============================================================
-# ðŸ“¥ DOWNLOAD & CLONE WORKERS
+# 📥 DOWNLOAD & CLONE WORKERS
 # ============================================================
 @bot.on_message(filters.text & filters.private & ~filters.command(["start", "status", "buy", "proof", "cancel", "bdl", "clone", "analyze"]))
 async def single_download_handler(client: Client, message: Message):
     if not await is_eligible(message.from_user.id):
-        return await message.reply("ðŸš« Trial limit exceeded! Use `/buy` to unlock unlimited access.")
+        return await message.reply("🚫 Trial limit exceeded! Use `/buy` to unlock unlimited access.")
 
     try:
         chat_id, msg_id = parse_tg_link(message.text)
     except Exception:
-        return await message.reply("âŒ Invalid Telegram post URL format.")
+        return await message.reply("❌ Invalid Telegram post URL format.")
 
-    status_msg = await message.reply("âš¡ Fetching restricted media...")
+    status_msg = await message.reply("⚡ Fetching restricted media...")
     userbot = get_next_session()
 
     async with download_semaphore:
@@ -488,15 +445,15 @@ async def single_download_handler(client: Client, message: Message):
             try: await status_msg.delete()
             except Exception: pass
         else:
-            await status_msg.edit_text("âŒ Extraction failed. Make sure userbot account has access to this channel.")
+            await status_msg.edit_text("❌ Extraction failed. Make sure userbot account has access to this channel.")
 
 async def safe_batch_runner(client: Client, message: Message, chat_id, start_id: int, end_id: int, target_dest: int):
-    status = await message.reply(f"ðŸš€ Batch task started: `{start_id}` to `{end_id}`...")
+    status = await message.reply(f"🚀 Batch task started: `{start_id}` to `{end_id}`...")
     success = failed = 0
 
     for curr_id in range(start_id, end_id + 1):
         if not await is_eligible(message.from_user.id):
-            await message.reply("â›” Download quota reached midway. Task suspended. Upgrade with `/buy`.")
+            await message.reply("⛔ Download quota reached midway. Task suspended. Upgrade with `/buy`.")
             break
 
         userbot = get_next_session()
@@ -508,8 +465,7 @@ async def safe_batch_runner(client: Client, message: Message, chat_id, start_id:
             else:
                 failed += 1
         except asyncio.CancelledError:
-            await status.edit_text(f"ðŸ›‘ Batch cancelled!
-Transferred: `{success}` | Skipped: `{failed}`")
+            await status.edit_text(f"🛑 Batch cancelled!\nTransferred: `{success}` | Skipped: `{failed}`")
             return
         except FloodWait as fw:
             await asyncio.sleep(fw.value + 4)
@@ -518,35 +474,29 @@ Transferred: `{success}` | Skipped: `{failed}`")
 
         if (curr_id - start_id + 1) % 10 == 0:
             try:
-                await status.edit_text(f"â³ Processing: `{curr_id}/{end_id}`
-âœ… Completed: `{success}` | âŒ Skipped: `{failed}`")
+                await status.edit_text(f"⏳ Processing: `{curr_id}/{end_id}`\n✅ Completed: `{success}` | ❌ Skipped: `{failed}`")
             except Exception:
                 pass
 
         await asyncio.sleep(config.FLOOD_SLEEP)
 
-    await status.edit_text(f"ðŸŽ‰ **Batch Complete!**
-
-âœ… Transferred: `{success}`
-âŒ Skipped: `{failed}`")
+    await status.edit_text(f"🎉 **Batch Complete!**\n\n✅ Transferred: `{success}`\n❌ Skipped: `{failed}`")
 
 @bot.on_message(filters.command("bdl") & filters.private)
 async def batch_cmd(client: Client, message: Message):
     if len(message.command) < 3:
-        return await message.reply("ðŸ“Œ Usage: `/bdl <start_link> <end_id>`
-Example:
-`/bdl https://t.me/c/12345/1 50`")
+        return await message.reply("📌 Usage: `/bdl <start_link> <end_id>`\nExample:\n`/bdl https://t.me/c/12345/1 50`")
 
     if not await is_eligible(message.from_user.id):
-        return await message.reply("â›” Quota limit reached! Upgrade using `/buy`.")
+        return await message.reply("⛔ Quota limit reached! Upgrade using `/buy`.")
 
     try:
         chat_id, start_id = parse_tg_link(message.command[1])
         end_id = int(message.command[2])
         if end_id < start_id:
-            return await message.reply("âŒ End ID must be greater than Start ID.")
+            return await message.reply("❌ End ID must be greater than Start ID.")
     except Exception:
-        return await message.reply("âŒ Invalid format or post URL.")
+        return await message.reply("❌ Invalid format or post URL.")
 
     task = asyncio.create_task(safe_batch_runner(client, message, chat_id, start_id, end_id, message.chat.id))
     RUNNING_TASKS.setdefault(message.from_user.id, []).append(task)
@@ -555,10 +505,10 @@ Example:
 async def clone_cmd(client: Client, message: Message):
     user = await get_user(message.from_user.id)
     if user.get("plan") != "premium" and message.from_user.id != config.OWNER_ID:
-        return await message.reply("â­ Channel Clone is an exclusive **Premium** feature. Use `/buy` to activate.")
+        return await message.reply("⭐ Channel Clone is an exclusive **Premium** feature. Use `/buy` to activate.")
 
     if len(message.command) < 3:
-        return await message.reply("ðŸ“Œ Usage: `/clone <channel_username_or_link> <target_chat_id>`")
+        return await message.reply("📌 Usage: `/clone <channel_username_or_link> <target_chat_id>`")
 
     src_input = message.command[1]
     target_chat = int(message.command[2])
@@ -567,14 +517,14 @@ async def clone_cmd(client: Client, message: Message):
     try:
         chat_obj = await userbot.get_chat(src_input)
     except Exception as e:
-        return await message.reply(f"âŒ Userbot cannot access source channel: {e}")
+        return await message.reply(f"❌ Userbot cannot access source channel: {e}")
 
-    init_msg = await message.reply("ðŸ” Scanning total posts in channel...")
+    init_msg = await message.reply("🔍 Scanning total posts in channel...")
     try:
         latest = await userbot.get_messages(chat_obj.id, 0)
         total_msgs = latest.id if latest else 0
     except Exception:
-        return await init_msg.edit_text("âŒ Could not fetch total message count.")
+        return await init_msg.edit_text("❌ Could not fetch total message count.")
 
     await init_msg.delete()
     task = asyncio.create_task(safe_batch_runner(client, message, chat_obj.id, 1, total_msgs, target_chat))
@@ -584,14 +534,14 @@ async def clone_cmd(client: Client, message: Message):
 async def cancel_cmd(_, message: Message):
     tasks = RUNNING_TASKS.get(message.from_user.id, [])
     if not tasks:
-        return await message.reply("â„¹ï¸ No active tasks running.")
+        return await message.reply("ℹ️ No active tasks running.")
     for t in tasks:
         t.cancel()
     RUNNING_TASKS[message.from_user.id] = []
-    await message.reply("ðŸ›‘ All running operations stopped.")
+    await message.reply("🛑 All running operations stopped.")
 
 # ============================================================
-# ðŸŒ KEEP-ALIVE SERVER & RUNTIME
+# 🌐 KEEP-ALIVE SERVER & RUNTIME
 # ============================================================
 web_app = Flask("")
 @web_app.route("/")
