@@ -1,7 +1,7 @@
 import os
 import re
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
 import aiosqlite
 from aiohttp import web
@@ -95,7 +95,6 @@ async def get_user(user_id, name="User"):
             cursor = await db.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
             user = await cursor.fetchone()
         else:
-            # Update name if different
             if user["name"] != name:
                 await db.execute("UPDATE users SET name = ? WHERE user_id = ?", (name, user_id))
                 await db.commit()
@@ -292,9 +291,12 @@ async def start_cmd(_, msg: Message):
         filter=filter_type
     )
     buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton(t["btn_login"], callback_data="btn_login"), InlineKeyboardButton(t["btn_lang"], callback_data="btn_lang")],
-        [InlineKeyboardButton(t["btn_plans"], callback_data="btn_plans"), InlineKeyboardButton(t["btn_myplan"], callback_data="btn_myplan")],
-        [InlineKeyboardButton(t["btn_bonus"], callback_data="btn_bonus"), InlineKeyboardButton(t["btn_ref"], callback_data="btn_ref")],
+        [InlineKeyboardButton(t["btn_login"], callback_data="btn_login"),
+         InlineKeyboardButton(t["btn_lang"], callback_data="btn_lang")],
+        [InlineKeyboardButton(t["btn_plans"], callback_data="btn_plans"),
+         InlineKeyboardButton(t["btn_myplan"], callback_data="btn_myplan")],
+        [InlineKeyboardButton(t["btn_bonus"], callback_data="btn_bonus"),
+         InlineKeyboardButton(t["btn_ref"], callback_data="btn_ref")],
         [InlineKeyboardButton(t["btn_trial"], callback_data="btn_trial")]
     ])
     await msg.reply_text(text, reply_markup=buttons)
@@ -871,41 +873,104 @@ async def admin_broadcast(_, msg: Message):
             pass
     await msg.reply_text(f"✅ Broadcast sent to {sent} users.")
 
-# ----------------- CALLBACK HANDLER -----------------
+# ----------------- CALLBACK HANDLER (ROBUST) -----------------
 @bot.on_callback_query()
 async def cb_handler(client: Client, q: CallbackQuery):
     data = q.data
     user_id = q.from_user.id
-
-    if data == "btn_login":
-        await login_cmd(client, q.message)
-    elif data == "btn_plans":
-        await plans_cmd(client, q.message)
-    elif data == "btn_myplan":
-        await myplan_cmd(client, q.message)
-    elif data == "btn_trial":
-        await trial_cmd(client, q.message)
-    elif data == "btn_bonus":
-        await bonus_cmd(client, q.message)
-    elif data == "btn_ref":
-        await referral_cmd(client, q.message)
-    elif data == "btn_buy":
-        await q.message.reply_text("UPI ID: `your-upi@okaxis`\nSend screenshot to admin.")
-    elif data == "btn_lang":
-        # Language selection inline
-        buttons = InlineKeyboardMarkup([
-            [InlineKeyboardButton("தமிழ்", callback_data="set_ta"),
-             InlineKeyboardButton("English", callback_data="set_en")],
-            [InlineKeyboardButton("हिन्दी", callback_data="set_hi")]
-        ])
-        await q.message.edit_text("Select language:", reply_markup=buttons)
-    elif data.startswith("set_"):
-        lang = data.replace("set_", "")
-        await update_user(user_id, lang=lang)
-        await q.answer(f"Language changed to {lang}")
-        # Refresh start message
-        await start_cmd(client, q.message)
-    await q.answer()
+    try:
+        if data == "btn_login":
+            user = await get_user(user_id)
+            lang = user.get("lang", "ta")
+            t = LANGUAGES.get(lang, LANGUAGES["ta"])
+            login_states[user_id] = {"step": "API_ID"}
+            await q.message.reply_text(t["ask_api"])
+        elif data == "btn_plans":
+            await q.message.reply_text(
+                "💎 **PREMIUM PLANS**\n\n"
+                "🥈 Standard: 50 files/day\n"
+                "🥇 Premium: 100 files/day\n"
+                "🔷 Ultimate: Unlimited + Cloning",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💳 Buy Plan (UPI)", callback_data="btn_buy")],
+                    [InlineKeyboardButton("💬 Admin", url=f"tg://user?id={ADMIN_ID}")]
+                ])
+            )
+        elif data == "btn_myplan":
+            user = await get_user(user_id)
+            plan = user["plan"]
+            limit = "Unlimited" if plan == "Ultimate" else str(user["daily_limit"])
+            used = user["daily_used"]
+            bonus = user.get("bonus_credits", 0)
+            left = "Unlimited" if plan == "Ultimate" else str(max(0, user["daily_limit"] - used) + bonus)
+            text = (
+                f"📋 **USER PLAN**\n\n"
+                f"👤 Name: {user['name']}\n"
+                f"🆔 ID: `{user['user_id']}`\n"
+                f"🏷️ Plan: {plan}\n"
+                f"📊 Used today: {used}/{limit}\n"
+                f"🎁 Bonus: {bonus}\n"
+                f"🎯 Total left: {left}\n"
+            )
+            await q.message.reply_text(text)
+        elif data == "btn_trial":
+            user = await get_user(user_id)
+            if user["plan"] != "Free":
+                await q.message.reply_text("Already on a paid or trial plan.")
+            else:
+                await update_user(user_id, plan="Trial (Standard)", daily_limit=50)
+                await q.message.reply_text("🎁 1-day Standard trial activated!")
+        elif data == "btn_bonus":
+            user = await get_user(user_id)
+            today = datetime.now(IST).strftime("%Y-%m-%d")
+            if user.get("last_bonus_date") == today:
+                await q.message.reply_text("⚠️ You already claimed today's bonus.")
+            else:
+                streak = (user.get("streak_count", 0) or 0) + 1
+                await update_user(
+                    user_id,
+                    last_bonus_date=today,
+                    streak_count=streak,
+                    bonus_credits=(user.get("bonus_credits", 0) or 0) + 1
+                )
+                reward_text = f"🎉 Daily bonus claimed!\n🔥 Streak: {streak} days\n🎁 +1 bonus download added."
+                if streak >= 30 and user["plan"] == "Free":
+                    await update_user(user_id, plan="Standard", daily_limit=50)
+                    reward_text += "\n\n🏆 30-day streak! You got free Standard plan!"
+                await q.message.reply_text(reward_text)
+        elif data == "btn_ref":
+            user = await get_user(user_id)
+            ref_link = f"https://t.me/{BOT_USERNAME}?start=ref_{user_id}"
+            await q.message.reply_text(
+                "👥 **REFER & EARN**\n\n"
+                f"Your referral link:\n`{ref_link}`\n\n"
+                f"Referrals: {user.get('ref_count', 0)}\n"
+                f"Bonus credits: {user.get('bonus_credits', 0)}\n\n"
+                "Each referral gives you +2 bonus downloads."
+            )
+        elif data == "btn_buy":
+            await q.message.reply_text("UPI ID: `your-upi@okaxis`\nSend screenshot to admin.")
+        elif data == "btn_lang":
+            buttons = InlineKeyboardMarkup([
+                [InlineKeyboardButton("தமிழ்", callback_data="set_ta"),
+                 InlineKeyboardButton("English", callback_data="set_en")],
+                [InlineKeyboardButton("हिन्दी", callback_data="set_hi")]
+            ])
+            await q.message.edit_text("Select language:", reply_markup=buttons)
+        elif data.startswith("set_"):
+            lang = data.replace("set_", "")
+            await update_user(user_id, lang=lang)
+            await q.answer(f"Language changed to {lang}")
+            # Refresh start message
+            await start_cmd(client, q.message)
+    except Exception as e:
+        print(f"Callback error for {data}: {e}")
+        try:
+            await q.message.reply_text(f"❌ Error: {e}")
+        except:
+            pass
+    finally:
+        await q.answer()
 
 # ----------------- MAIN BOOTSTRAP -----------------
 async def main():
