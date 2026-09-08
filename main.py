@@ -7,7 +7,7 @@ import aiosqlite
 from aiohttp import web
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle
 from pyrogram.types import (
     Message,
     InlineKeyboardMarkup,
@@ -24,35 +24,40 @@ from pyrogram.errors import (
 )
 
 # ----------------- CONFIGURATION -----------------
-DEFAULT_API_ID = int(os.environ.get("API_ID", "1234567"))
-DEFAULT_API_HASH = os.environ.get("API_HASH", "your_api_hash_here")
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "your_bot_token_here")
-ADMIN_ID = int(os.environ.get("ADMIN_ID", "1000931167"))
-BOT_USERNAME = os.environ.get("BOT_USERNAME", "SaveRestrictedProBot")
+# Render Dashboard -> Environment Variables-ல் இவை சரியாக கொடுக்கப்பட்டுள்ளதா என பார்க்கவும்
+DEFAULT_API_ID = int(os.environ.get("API_ID", "0"))
+DEFAULT_API_HASH = os.environ.get("API_HASH", "")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
+BOT_USERNAME = os.environ.get("BOT_USERNAME", "pro_saver_bot")
 PORT = int(os.environ.get("PORT", "8080"))
 
 IST = pytz.timezone("Asia/Kolkata")
-bot = Client("MegaPartnerSaverBot", api_id=DEFAULT_API_ID, api_hash=DEFAULT_API_HASH, bot_token=BOT_TOKEN)
+bot = Client(
+    "pro_saver_session",
+    api_id=DEFAULT_API_ID,
+    api_hash=DEFAULT_API_HASH,
+    bot_token=BOT_TOKEN
+)
 
 login_states = {}
 task_queue = asyncio.Queue()
 
-# ----------------- DUMMY WEB SERVER FOR RENDER HEALTH CHECK -----------------
-# Render-ல் Deploy Process Timeout வராமல் தடுக்க இந்த Web Ping உதவுகிறது
-async def handle_ping(request):
-    return web.Response(text="Bot is running 24/7 actively on Render!")
+# ----------------- WEB SERVER (RENDER HEALTH CHECK) -----------------
+async def ping_handler(request):
+    return web.Response(text="Bot is running active!")
 
 async def start_web_server():
     app = web.Application()
-    app.router.add_get("/", handle_ping)
-    app.router.add_get("/health", handle_ping)
+    app.router.add_get("/", ping_handler)
+    app.router.add_get("/health", ping_handler)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
-    print(f"Health check web server started on port {PORT}")
+    print(f"[OK] Web health server listening on port {PORT}")
 
-# ----------------- DATABASE ATOMIC ENGINE -----------------
+# ----------------- DATABASE -----------------
 async def init_db():
     async with aiosqlite.connect("bot_data.db") as db:
         await db.execute("""
@@ -69,8 +74,6 @@ async def init_db():
                 ref_count INTEGER DEFAULT 0,
                 lang TEXT DEFAULT 'ta',
                 session TEXT,
-                custom_api_id INTEGER,
-                custom_api_hash TEXT,
                 doc_thumb TEXT,
                 vid_thumb TEXT,
                 custom_caption TEXT,
@@ -126,19 +129,19 @@ async def daily_reset_job():
         await db.execute("UPDATE users SET daily_used = 0")
         await db.commit()
 
-# ----------------- ASYNC TASK QUEUE WORKER -----------------
+# ----------------- QUEUE WORKER -----------------
 async def queue_worker():
     while True:
         task = await task_queue.get()
         try:
             handler, args, kwargs = task
-            await asyncio.wait_for(handler(*args, **kwargs), timeout=900)
+            await asyncio.wait_for(handler(*args, **kwargs), timeout=600)
         except Exception as e:
-            print(f"Task Queue error: {e}")
+            print(f"[Queue Error] {e}")
         finally:
             task_queue.task_done()
 
-# ----------------- MENU SETUP -----------------
+# ----------------- COMMANDS MENU -----------------
 async def set_bot_commands():
     commands = [
         BotCommand("start", "Home"),
@@ -146,8 +149,8 @@ async def set_bot_commands():
         BotCommand("logout", "Logout Session"),
         BotCommand("batch", "Batch Fetch (Standard+)"),
         BotCommand("clone", "Clone Channel / Group"),
-        BotCommand("extract", "Extract Channel Playlist (.txt)"),
-        BotCommand("filter", "Set Media Filter (video/doc/all)"),
+        BotCommand("extract", "Extract Channel Playlist"),
+        BotCommand("filter", "Set Media Filter"),
         BotCommand("setcaption", "Custom Caption & Watermark"),
         BotCommand("delcaption", "Remove Caption"),
         BotCommand("referral", "Refer Friends & Earn"),
@@ -156,48 +159,27 @@ async def set_bot_commands():
         BotCommand("myplan", "My Plan & Usage"),
         BotCommand("plans", "Premium Plans"),
         BotCommand("id", "Get Telegram ID"),
-        BotCommand("setthumb", "Set Doc/Audio Thumbnail"),
-        BotCommand("delthumb", "Remove Doc/Audio Thumbnail"),
+        BotCommand("setthumb", "Set Doc Thumbnail"),
+        BotCommand("delthumb", "Remove Doc Thumbnail"),
         BotCommand("setvthumb", "Set Video Thumbnail"),
-        BotCommand("delvthumb", "Remove Video Thumbnail"),
-        BotCommand("ap", "Assign Plan (Admin)"),
-        BotCommand("rp", "Reset User (Admin)"),
-        BotCommand("ps", "Check Plan (Admin)"),
-        BotCommand("stats", "Bot Statistics (Admin)"),
-        BotCommand("broadcast", "Broadcast Message (Admin)")
+        BotCommand("delvthumb", "Remove Video Thumbnail")
     ]
     await bot.set_bot_commands(commands)
 
-# ----------------- USER COMMANDS -----------------
+# ----------------- TELEGRAM HANDLERS -----------------
 @bot.on_message(filters.command("start") & filters.private)
 async def start_cmd(_, msg: Message):
     user_id = msg.from_user.id
-    args = msg.text.split()
     user = await get_user(user_id, msg.from_user.first_name)
-
-    if len(args) > 1 and args[1].startswith("ref_"):
-        try:
-            ref_id = int(args[1].replace("ref_", ""))
-            if ref_id != user_id and not user.get("referred_by"):
-                await update_user(user_id, referred_by=ref_id)
-                async with aiosqlite.connect("bot_data.db") as db:
-                    await db.execute("UPDATE users SET bonus_credits = bonus_credits + 2, ref_count = ref_count + 1 WHERE user_id = ?", (ref_id,))
-                    await db.commit()
-                try:
-                    await bot.send_message(ref_id, f"🎉 **New Referral!** {msg.from_user.first_name} joined. You got **+2 bonus downloads**!")
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
     session_status = "✅ Connected" if user.get("session") else "❌ Not Connected"
+
     text = (
         f"👋 **வணக்கம் {msg.from_user.mention}!**\n\n"
-        "Welcome to **SAVE RESTRICTED & CLONER PRO BOT**.\n\n"
-        f"🏷️ **திட்டம்:** `{user['plan']}`\n"
-        f"🔑 **கணக்கு:** {session_status}\n"
-        f"🎯 **ஃபில்டர்:** `{user.get('file_filter', 'all').upper()}`\n\n"
-        "🔗 நேரடி லிங்க் அல்லது பார்வர்ட் செய்த மெசேஜை அனுப்பவும்!"
+        "Welcome to **Save Restricted Pro Bot**!\n\n"
+        f"🏷️ **Plan:** `{user['plan']}`\n"
+        f"🔑 **Session:** {session_status}\n"
+        f"🎯 **Filter:** `{user.get('file_filter', 'all').upper()}`\n\n"
+        "Restricted சேனல் போஸ்ட் லிங்கை இங்கு அனுப்புங்கள் அல்லது `/login` செய்து உங்கள் கணக்கை இணையுங்கள்."
     )
     buttons = InlineKeyboardMarkup([
         [InlineKeyboardButton("🔑 Connect Account", callback_data="btn_login"), InlineKeyboardButton("📦 Plans", callback_data="btn_plans")],
@@ -206,52 +188,18 @@ async def start_cmd(_, msg: Message):
     ])
     await msg.reply_text(text, reply_markup=buttons)
 
-@bot.on_message(filters.command("bonus") & filters.private)
-async def bonus_cmd(_, msg: Message):
-    user = await get_user(msg.from_user.id)
-    today = datetime.now(IST).date()
-    last_date_str = user.get("last_bonus_date")
-    streak = user.get("streak_count", 0) or 0
-
-    if last_date_str:
-        last_date = datetime.strptime(last_date_str, "%Y-%m-%d").date()
-        if last_date == today:
-            await msg.reply_text("⚠️ இன்றைய போனஸை ஏற்கனவே பெற்றுவிட்டீர்கள்! நாளை மீண்டும் வரவும்.")
-            return
-        elif last_date == today - timedelta(days=1):
-            streak += 1
-        else:
-            streak = 1
-    else:
-        streak = 1
-
-    await update_user(
-        msg.from_user.id,
-        last_bonus_date=today.strftime("%Y-%m-%d"),
-        streak_count=streak,
-        bonus_credits=(user.get("bonus_credits", 0) or 0) + 1
+@bot.on_message(filters.command("login") & filters.private)
+async def login_cmd(_, msg: Message):
+    login_states[msg.from_user.id] = {"step": "API_ID"}
+    await msg.reply_text(
+        "Send Your **API ID**.\n\n"
+        "Or click on **/skip** to use default bot API keys."
     )
 
-    reward_text = f"🎉 **தினசரி போனஸ் பெறப்பட்டது!**\n\n🔥 **Streak:** {streak} Days\n🎁 **போனஸ்:** +1 பதிவிறக்க கிரெடிட் சேர்க்கப்பட்டது."
-    if streak >= 30 and user["plan"] == "Free":
-        await update_user(msg.from_user.id, plan="Standard", daily_limit=50)
-        reward_text += "\n\n🏆 **30 Days Streak வெற்றி!** உங்களுக்கு இலவசமாக **Standard VIP Plan** செயல்படுத்தப்பட்டது!"
-
-    await msg.reply_text(reward_text)
-
-@bot.on_message(filters.command("referral") & filters.private)
-async def referral_cmd(_, msg: Message):
-    user = await get_user(msg.from_user.id)
-    ref_link = f"https://t.me/{BOT_USERNAME}?start=ref_{msg.from_user.id}"
-    text = (
-        "👥 **REFER & EARN PROGRAM**\n\n"
-        "உங்கள் தனித்துவமான ரெஃபரல் லிங்க்:\n"
-        f"`{ref_link}`\n\n"
-        f"• அழைத்த நபர்கள்: `{user.get('ref_count', 0)}`\n"
-        f"• போனஸ் கிரெடிட்கள்: `{user.get('bonus_credits', 0)}`\n\n"
-        "💡 ஒவ்வொரு ரெஃபரலுக்கும் +2 கூடுதல் டவுன்லோட்கள் கிடைக்கும்!"
-    )
-    await msg.reply_text(text)
+@bot.on_message(filters.command("logout") & filters.private)
+async def logout_cmd(_, msg: Message):
+    await update_user(msg.from_user.id, session=None)
+    await msg.reply_text("🚪 உங்கள் கணக்கு இணைப்பு துண்டிக்கப்பட்டது.")
 
 @bot.on_message(filters.command("myplan") & filters.private)
 async def myplan_cmd(_, msg: Message):
@@ -271,8 +219,7 @@ async def myplan_cmd(_, msg: Message):
         f"📊 **TODAY**      : {used}/{limit} USED\n"
         f"🎁 **BONUS**      : {bonus} CREDITS\n"
         f"🎯 **TOTAL LEFT** : {left}\n\n"
-        f"🔄 **RESETS**     : {reset_str}\n\n"
-        "⚡ **Powered by SAVE RESTRICTED BOT**"
+        f"🔄 **RESETS**     : {reset_str}"
     )
     buttons = InlineKeyboardMarkup([
         [InlineKeyboardButton("⬆️ Upgrade Plan", callback_data="btn_plans"), InlineKeyboardButton("🎁 Free Trial", callback_data="btn_trial")]
@@ -282,21 +229,14 @@ async def myplan_cmd(_, msg: Message):
 @bot.on_message(filters.command("plans") & filters.private)
 async def plans_cmd(_, msg: Message):
     text = (
-        "💎 **SAVE RESTRICTED BOT PREMIUM PLANS** 💎\n\n"
-        "🥈 **Standard:**\n"
-        "• 50 downloads/day\n"
-        "• ₹50 / week | ₹180 / month\n\n"
-        "🥇 **Premium:**\n"
-        "• 100 downloads/day\n"
-        "• ₹80 / week | ₹280 / month\n\n"
-        "🔷 **Ultimate (Channel Cloner + Unlimited):**\n"
-        "• ♾️ Unlimited batch downloads\n"
-        "• 🚀 Complete channel cloning access\n"
-        "• ₹130 / week | ₹450 / month"
+        "💎 **PREMIUM PLANS** 💎\n\n"
+        "🥈 **Standard:** 50 files/day (₹50/wk | ₹180/mo)\n"
+        "🥇 **Premium:** 100 files/day (₹80/wk | ₹280/mo)\n"
+        "🔷 **Ultimate:** Unlimited + Cloning (₹130/wk | ₹450/mo)"
     )
     buttons = InlineKeyboardMarkup([
         [InlineKeyboardButton("💳 Buy Plan (UPI)", callback_data="btn_buy")],
-        [InlineKeyboardButton("💬 Contact Admin", url=f"tg://user?id={ADMIN_ID}")]
+        [InlineKeyboardButton("💬 Admin", url=f"tg://user?id={ADMIN_ID}")]
     ])
     await msg.reply_text(text, reply_markup=buttons)
 
@@ -304,167 +244,18 @@ async def plans_cmd(_, msg: Message):
 async def trial_cmd(_, msg: Message):
     user = await get_user(msg.from_user.id)
     if user["plan"] != "Free":
-        await msg.reply_text("நீங்கள் ஏற்கனவே விஐபி அல்லது ட்ரையல் பிளானில் உள்ளீர்கள்.")
+        await msg.reply_text("ஏற்கனவே நீங்கள் விஐபி அல்லது ட்ரையல் திட்டத்தில் உள்ளீர்கள்.")
         return
     await update_user(msg.from_user.id, plan="Trial (Standard)", daily_limit=50)
-    await msg.reply_text("🎁 **வாழ்த்துகள்!** உங்களுக்கு 1-நாள் Standard இலவச ட்ரையல் செயல்படுத்தப்பட்டது.")
-
-@bot.on_message(filters.command("batch") & filters.private)
-async def batch_cmd(c: Client, msg: Message):
-    user = await get_user(msg.from_user.id)
-    if user["plan"] == "Free":
-        text = (
-            "🔒 **Batch — Restricted!**\n\n"
-            f"📋 **Your plan:** 🆓 Free\n\n"
-            "✅ **/batch available on Standard, Premium & Ultimate!**\n\n"
-            "👇 **Tap below to upgrade!**"
-        )
-        buttons = InlineKeyboardMarkup([[InlineKeyboardButton("🛒 Buy Plan", callback_data="btn_buy")]])
-        await msg.reply_text(text, reply_markup=buttons)
-        return
-    await msg.reply_text("📦 **Batch Mode:** தொடக்க மற்றும் இறுதி லிங்க்களை அனுப்பவும்:\nஉதாரணம்: `https://t.me/c/1234567890/10-30`")
-
-@bot.on_message(filters.command("filter") & filters.private)
-async def filter_cmd(_, msg: Message):
-    args = msg.text.split()
-    if len(args) < 2 or args[1].lower() not in ["all", "video", "doc", "audio", "photo"]:
-        await msg.reply_text("பயன்பாடு: `/filter <all|video|doc|audio|photo>`")
-        return
-    chosen = args[1].lower()
-    await update_user(msg.from_user.id, file_filter=chosen)
-    await msg.reply_text(f"🎯 **மீடியா ஃபில்டர் அமைக்கப்பட்டது:** `{chosen.upper()}`")
-
-@bot.on_message(filters.command("setcaption") & filters.private)
-async def set_caption_cmd(_, msg: Message):
-    caption = msg.text.partition(" ")[2].strip()
-    if not caption:
-        await msg.reply_text("பயன்பாடு: `/setcaption உங்கள் தனிப்பட்ட கேப்ஷன்`")
-        return
-    await update_user(msg.from_user.id, custom_caption=caption)
-    await msg.reply_text(f"✅ தனிப்பட்ட கேப்ஷன் சேமிக்கப்பட்டது:\n\n`{caption}`")
-
-@bot.on_message(filters.command("delcaption") & filters.private)
-async def del_caption_cmd(_, msg: Message):
-    await update_user(msg.from_user.id, custom_caption=None)
-    await msg.reply_text("🗑️ தனிப்பட்ட கேப்ஷன் நீக்கப்பட்டது.")
+    await msg.reply_text("🎁 1-நாள் Standard இலவச ட்ரையல் செயல்படுத்தப்பட்டது!")
 
 @bot.on_message(filters.command("id") & filters.private)
 async def id_cmd(_, msg: Message):
     await msg.reply_text(f"🆔 **Your Telegram ID:** `{msg.from_user.id}`")
 
-# ----------------- PLAYLIST EXTRACTOR -----------------
-@bot.on_message(filters.command("extract") & filters.private)
-async def extract_cmd(client: Client, msg: Message):
-    user = await get_user(msg.from_user.id)
-    if not user.get("session"):
-        await msg.reply_text("⚠️ முதலில் `/login` செய்யவும்.")
-        return
-
-    args = msg.text.split()
-    if len(args) < 2:
-        await msg.reply_text("பயன்பாடு: `/extract <channel_id_or_username>`\nஉதாரணம்: `/extract -1001234567890`")
-        return
-
-    target = int(args[1]) if args[1].lstrip("-").isdigit() else args[1]
-    status_msg = await msg.reply_text("📑 சேனல் போஸ்ட்கள் தொகுக்கப்படுகின்றன...")
-
-    u_client = Client(f"ub_ext_{msg.from_user.id}", session_string=user["session"], in_memory=True)
-    await u_client.connect()
-
-    file_name = f"playlist_{msg.from_user.id}.txt"
-    try:
-        count = 0
-        with open(file_name, "w", encoding="utf-8") as f:
-            f.write(f"--- Channel Media Playlist ({target}) ---\n\n")
-            async for post in u_client.get_chat_history(target):
-                if post.media:
-                    count += 1
-                    media_type = "Document" if post.document else "Video" if post.video else "Audio" if post.audio else "Photo"
-                    f.write(f"[{count}] Type: {media_type} | ID: {post.id} | Link: https://t.me/c/{str(target).replace('-100', '')}/{post.id}\n")
-
-        await status_msg.edit_text(f"✅ {count} மீடியா பதிவுகள் தொகுக்கப்பட்டன. கோப்பு அனுப்பப்படுகிறது...")
-        await client.send_document(msg.from_user.id, file_name, caption=f"📑 **Channel Playlist Index**\nTotal Media Posts: {count}")
-        if os.path.exists(file_name):
-            os.remove(file_name)
-        await status_msg.delete()
-    except Exception as e:
-        await status_msg.edit_text(f"❌ பிழை: {str(e)}")
-    finally:
-        if u_client.is_connected:
-            await u_client.disconnect()
-
-# ----------------- FORWARDED MESSAGES CATCHER -----------------
-@bot.on_message(filters.forwarded & filters.private)
-async def forwarded_catcher(client: Client, msg: Message):
-    if not msg.media:
-        await msg.reply_text("❌ இந்த பார்வர்ட் மெசேஜில் மீடியா எதுவும் இல்லை.")
-        return
-    await task_queue.put((execute_single_forward_download, (client, msg, msg.from_user.id), {}))
-    await msg.reply_text("⏳ பார்வர்ட் மீடியா வரிசையில் (Queue) சேர்க்கப்பட்டது...")
-
-async def execute_single_forward_download(bot_client: Client, msg: Message, user_id: int):
-    user = await get_user(user_id)
-    if not user.get("session"):
-        await bot_client.send_message(user_id, "⚠️ முதலில் `/login` செய்து உங்கள் கணக்கை இணைக்கவும்.")
-        return
-
-    f_type = user.get("file_filter", "all")
-    if f_type == "video" and not msg.video:
-        return
-    elif f_type == "doc" and not msg.document:
-        return
-    elif f_type == "audio" and not msg.audio:
-        return
-    elif f_type == "photo" and not msg.photo:
-        return
-
-    allowed = await deduct_usage(user_id)
-    if not allowed:
-        await bot_client.send_message(user_id, "⛔ உங்கள் தினசரி வரம்பு முடிந்தது. தொடர பிளானை அப்கிரேட் செய்யவும்.")
-        return
-
-    status_msg = await bot_client.send_message(user_id, "📥 பார்வர்ட் மீடியா அசல் தரத்தில் பதிவிறக்கப்படுகிறது...")
-    try:
-        file_path = await msg.download()
-        await status_msg.edit_text("📤 பதிவேற்றப்படுகிறது...")
-
-        caption = user.get("custom_caption") or msg.caption or ""
-        thumb_doc = user.get("doc_thumb") if user.get("doc_thumb") and os.path.exists(user["doc_thumb"]) else None
-        thumb_vid = user.get("vid_thumb") if user.get("vid_thumb") and os.path.exists(user["vid_thumb"]) else None
-
-        if msg.document:
-            await bot_client.send_document(user_id, file_path, caption=caption, thumb=thumb_doc)
-        elif msg.video:
-            await bot_client.send_video(user_id, file_path, caption=caption, thumb=thumb_vid, supports_streaming=True)
-        elif msg.audio:
-            await bot_client.send_audio(user_id, file_path, caption=caption, thumb=thumb_doc)
-        elif msg.photo:
-            await bot_client.send_photo(user_id, file_path, caption=caption)
-
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        await status_msg.delete()
-    except Exception as e:
-        await status_msg.edit_text(f"❌ பிழை: {str(e)}")
-
-# ----------------- LOGIN / /skip WORKFLOW -----------------
-@bot.on_message(filters.command("login") & filters.private)
-async def login_cmd(_, msg: Message):
-    text = (
-        "Send Your API ID.\n\n"
-        "or Click On /skip To Skip This Process and login by phone no.\n\n"
-        "**NOTE :** If you skip, default bot API keys will be used."
-    )
-    login_states[msg.from_user.id] = {"step": "API_ID"}
-    await msg.reply_text(text)
-
-@bot.on_message(filters.command("logout") & filters.private)
-async def logout_cmd(_, msg: Message):
-    await update_user(msg.from_user.id, session=None)
-    await msg.reply_text("🚪 உங்கள் கணக்கு இணைப்பு துண்டிக்கப்பட்டது.")
-
+# ----------------- OTP LOGIN & TEXT HANDLER -----------------
 @bot.on_message(filters.text & filters.private)
-async def text_and_link_handler(client: Client, msg: Message):
+async def text_handler(client: Client, msg: Message):
     user_id = msg.from_user.id
     text = msg.text.strip()
 
@@ -479,16 +270,16 @@ async def text_and_link_handler(client: Client, msg: Message):
         if step == "API_ID":
             if text == "/skip":
                 login_states[user_id] = {"step": "PHONE", "api_id": DEFAULT_API_ID, "api_hash": DEFAULT_API_HASH}
-                await msg.reply_text("Please send your phone number with country code:\nExample: `+919876543210`")
+                await msg.reply_text("நாட்டின் குறியீட்டுடன் போன் நம்பரை அனுப்பவும்:\nஉதாரணம்: `+919876543210`")
             elif text.isdigit():
                 login_states[user_id] = {"step": "API_HASH", "api_id": int(text)}
-                await msg.reply_text("Now send your API HASH:")
+                await msg.reply_text("இப்போது உங்கள் API HASH-ஐ அனுப்பவும்:")
             return
 
         if step == "API_HASH":
             login_states[user_id]["api_hash"] = text
             login_states[user_id]["step"] = "PHONE"
-            await msg.reply_text("Please send your phone number with country code:\nExample: `+919876543210`")
+            await msg.reply_text("நாட்டின் குறியீட்டுடன் போன் நம்பரை அனுப்பவும்:\nஉதாரணம்: `+919876543210`")
             return
 
         if step == "PHONE":
@@ -499,7 +290,7 @@ async def text_and_link_handler(client: Client, msg: Message):
                 await msg.reply_text("Sending OTP...")
                 code = await u_client.send_code(phone)
                 login_states[user_id].update({"step": "OTP", "client": u_client, "phone": phone, "hash": code.phone_code_hash})
-                await msg.reply_text("Please enter OTP with spaces: `1 2 3 4 5`")
+                await msg.reply_text("OTP-ஐ எண்களுக்கு இடையே இடைவெளி விட்டு அனுப்பவும்: `1 2 3 4 5`")
             except Exception as e:
                 login_states.pop(user_id, None)
                 await msg.reply_text(f"❌ Error: {str(e)}")
@@ -517,7 +308,7 @@ async def text_and_link_handler(client: Client, msg: Message):
                 await msg.reply_text("✅ Account Login Successfully!")
             except SessionPasswordNeeded:
                 login_states[user_id]["step"] = "2FA"
-                await msg.reply_text("🔐 Enter your 2-Step Verification Password:")
+                await msg.reply_text("🔐 2-Step Verification Password அனுப்பவும்:")
             except Exception as e:
                 login_states.pop(user_id, None)
                 await msg.reply_text(f"❌ Error: {str(e)}")
@@ -539,11 +330,11 @@ async def text_and_link_handler(client: Client, msg: Message):
 
     # Direct Link Detection
     if "t.me/" in text:
-        await task_queue.put((execute_link_download, (client, msg, user_id), {}))
-        await msg.reply_text("⏳ டவுன்லோட் பணி வரிசையில் (Queue) சேர்க்கப்பட்டது...")
+        await task_queue.put((execute_download, (client, msg, user_id), {}))
+        await msg.reply_text("⏳ டவுன்லோட் வரிசையில் சேர்க்கப்பட்டது...")
 
-# ----------------- QUEUED DOWNLOAD EXECUTION -----------------
-async def execute_link_download(bot_client: Client, msg: Message, user_id: int):
+# ----------------- DOWNLOAD EXECUTION -----------------
+async def execute_download(bot_client: Client, msg: Message, user_id: int):
     user = await get_user(user_id)
     if not user.get("session"):
         await bot_client.send_message(user_id, "⚠️ முதலில் `/login` செய்யவும்.")
@@ -551,7 +342,7 @@ async def execute_link_download(bot_client: Client, msg: Message, user_id: int):
 
     match = re.search(r"t\.me/(c/)?([a-zA-Z0-9_]+)/(\d+)(?:-(\d+))?", msg.text.strip())
     if not match:
-        await bot_client.send_message(user_id, "❌ தவறான டெலிகிராம் லிங்க்.")
+        await bot_client.send_message(user_id, "❌ செல்லுபடியாகாத Telegram லிங்க்.")
         return
 
     is_private = bool(match.group(1))
@@ -560,8 +351,7 @@ async def execute_link_download(bot_client: Client, msg: Message, user_id: int):
     end_id = int(match.group(4)) if match.group(4) else start_id
     chat_id = int(f"-100{chat_raw}") if is_private or chat_raw.isdigit() else chat_raw
 
-    filter_type = user.get("file_filter", "all")
-    status_msg = await bot_client.send_message(user_id, "📥 டவுன்லோட் துவங்குகிறது...")
+    status_msg = await bot_client.send_message(user_id, "📥 டவுன்லோட் தொடங்குகிறது...")
     u_client = Client(f"ub_exec_{user_id}", session_string=user["session"], in_memory=True)
     await u_client.connect()
 
@@ -569,7 +359,7 @@ async def execute_link_download(bot_client: Client, msg: Message, user_id: int):
         for cur_id in range(start_id, end_id + 1):
             allowed = await deduct_usage(user_id)
             if not allowed:
-                await bot_client.send_message(user_id, "⛔ தினசரி வரம்பு முடிந்தது. தொடர விஐபி எடுக்கவும்.")
+                await bot_client.send_message(user_id, "⛔ உங்கள் தினசரி வரம்பு முடிந்தது.")
                 break
 
             try:
@@ -577,268 +367,67 @@ async def execute_link_download(bot_client: Client, msg: Message, user_id: int):
                 if not target or not target.media:
                     continue
 
-                if filter_type == "video" and not target.video:
-                    continue
-                elif filter_type == "doc" and not target.document:
-                    continue
-                elif filter_type == "audio" and not target.audio:
-                    continue
-                elif filter_type == "photo" and not target.photo:
-                    continue
-
                 await status_msg.edit_text(f"📥 Downloading ID: {cur_id}...")
                 f_path = await target.download()
 
-                await status_msg.edit_text(f"📤 Uploading ID: {cur_id} (Original Quality)...")
+                await status_msg.edit_text(f"📤 Uploading ID: {cur_id}...")
                 caption = user.get("custom_caption") or target.caption or ""
 
-                thumb_doc = user.get("doc_thumb") if user.get("doc_thumb") and os.path.exists(user["doc_thumb"]) else None
-                thumb_vid = user.get("vid_thumb") if user.get("vid_thumb") and os.path.exists(user["vid_thumb"]) else None
-
                 if target.document:
-                    await bot_client.send_document(user_id, f_path, caption=caption, thumb=thumb_doc)
+                    await bot_client.send_document(user_id, f_path, caption=caption)
                 elif target.video:
-                    await bot_client.send_video(user_id, f_path, caption=caption, thumb=thumb_vid, supports_streaming=True)
+                    await bot_client.send_video(user_id, f_path, caption=caption, supports_streaming=True)
                 elif target.audio:
-                    await bot_client.send_audio(user_id, f_path, caption=caption, thumb=thumb_doc)
+                    await bot_client.send_audio(user_id, f_path, caption=caption)
                 elif target.photo:
                     await bot_client.send_photo(user_id, f_path, caption=caption)
 
                 if os.path.exists(f_path):
                     os.remove(f_path)
-
-                await asyncio.sleep(1.5)
-
+                await asyncio.sleep(1)
             except FloodWait as fw:
                 await asyncio.sleep(fw.value)
             except Exception:
                 continue
 
-        await status_msg.edit_text("✅ பதிவிறக்கம் நிறைவடைந்தது!")
+        await status_msg.edit_text("✅ முடிந்தது!")
     except Exception as e:
-        await status_msg.edit_text(f"❌ பிழை: {str(e)}")
+        await status_msg.edit_text(f"❌ Error: {str(e)}")
     finally:
         if u_client.is_connected:
             await u_client.disconnect()
 
-# ----------------- CHANNEL / GROUP CLONER -----------------
-@bot.on_message(filters.command("clone") & filters.private)
-async def clone_command(client: Client, msg: Message):
-    user = await get_user(msg.from_user.id)
-    if user["plan"] != "Ultimate" and msg.from_user.id != ADMIN_ID:
-        await msg.reply_text("⭐ குளோனிங் வசதி **Ultimate Plan**-ல் மட்டுமே கிடைக்கும்.")
-        return
-
-    if not user.get("session"):
-        await msg.reply_text("⚠️ முதலில் `/login` செய்யவும்.")
-        return
-
-    args = msg.text.split()
-    if len(args) < 3:
-        await msg.reply_text("பயன்பாடு:\n`/clone <source_id> <target_id>`\nஉதாரணம்:\n`/clone -1001234567890 -1009876543210`")
-        return
-
-    src = int(args[1]) if args[1].lstrip("-").isdigit() else args[1]
-    dest = int(args[2]) if args[2].lstrip("-").isdigit() else args[2]
-
-    await task_queue.put((execute_channel_clone, (client, msg, msg.from_user.id, src, dest), {}))
-    await msg.reply_text("🚀 குளோனிங் பணி வரிசையில் சேர்க்கப்பட்டது...")
-
-async def execute_channel_clone(bot_client: Client, msg: Message, user_id: int, src, dest):
-    user = await get_user(user_id)
-    status_msg = await bot_client.send_message(user_id, "🚀 சேனல்/குரூப் குளோனிங் தொடங்குகிறது...")
-    u_client = Client(f"ub_clone_q_{user_id}", session_string=user["session"], in_memory=True)
-    await u_client.connect()
-
-    filter_type = user.get("file_filter", "all")
-    count = 0
-    try:
-        async for post in u_client.get_chat_history(src):
-            if post.media:
-                if filter_type == "video" and not post.video:
-                    continue
-                elif filter_type == "doc" and not post.document:
-                    continue
-                elif filter_type == "audio" and not post.audio:
-                    continue
-                elif filter_type == "photo" and not post.photo:
-                    continue
-
-                try:
-                    f = await post.download()
-                    cap = user.get("custom_caption") or post.caption or ""
-                    thumb_doc = user.get("doc_thumb") if user.get("doc_thumb") and os.path.exists(user["doc_thumb"]) else None
-                    thumb_vid = user.get("vid_thumb") if user.get("vid_thumb") and os.path.exists(user["vid_thumb"]) else None
-
-                    if post.document:
-                        await u_client.send_document(dest, f, caption=cap, thumb=thumb_doc)
-                    elif post.video:
-                        await u_client.send_video(dest, f, caption=cap, thumb=thumb_vid)
-                    elif post.audio:
-                        await u_client.send_audio(dest, f, caption=cap, thumb=thumb_doc)
-                    elif post.photo:
-                        await u_client.send_photo(dest, f, caption=cap)
-
-                    if os.path.exists(f):
-                        os.remove(f)
-
-                    count += 1
-                    if count % 5 == 0:
-                        await status_msg.edit_text(f"🔄 Cloned {count} files successfully...")
-                    await asyncio.sleep(2)
-                except FloodWait as fw:
-                    await asyncio.sleep(fw.value)
-                except Exception:
-                    continue
-
-        await status_msg.edit_text(f"✅ குளோனிங் நிறைவடைந்தது! மொத்தம்: {count} கோப்புகள்.")
-    except Exception as e:
-        await status_msg.edit_text(f"❌ பிழை: {str(e)}")
-    finally:
-        if u_client.is_connected:
-            await u_client.disconnect()
-
-# ----------------- THUMBNAIL HANDLERS -----------------
-@bot.on_message(filters.command("setthumb") & filters.private)
-async def set_thumb(_, msg: Message):
-    if not msg.reply_to_message or not msg.reply_to_message.photo:
-        await msg.reply_text("படத்திற்கு ரிப்ளை செய்து `/setthumb` அனுப்பவும்.")
-        return
-    os.makedirs("thumbnails", exist_ok=True)
-    path = f"thumbnails/thumb_{msg.from_user.id}.jpg"
-    await msg.reply_to_message.download(file_name=path)
-    await update_user(msg.from_user.id, doc_thumb=path)
-    await msg.reply_text("✅ Document Thumbnail சேமிக்கப்பட்டது!")
-
-@bot.on_message(filters.command("delthumb") & filters.private)
-async def del_thumb(_, msg: Message):
-    user = await get_user(msg.from_user.id)
-    if user.get("doc_thumb") and os.path.exists(user["doc_thumb"]):
-        os.remove(user["doc_thumb"])
-    await update_user(msg.from_user.id, doc_thumb=None)
-    await msg.reply_text("🗑️ Document Thumbnail நீக்கப்பட்டது.")
-
-@bot.on_message(filters.command("setvthumb") & filters.private)
-async def set_vthumb(_, msg: Message):
-    if not msg.reply_to_message or not msg.reply_to_message.photo:
-        await msg.reply_text("படத்திற்கு ரிப்ளை செய்து `/setvthumb` அனுப்பவும்.")
-        return
-    os.makedirs("thumbnails", exist_ok=True)
-    path = f"thumbnails/vthumb_{msg.from_user.id}.jpg"
-    await msg.reply_to_message.download(file_name=path)
-    await update_user(msg.from_user.id, vid_thumb=path)
-    await msg.reply_text("✅ Video Thumbnail சேமிக்கப்பட்டது!")
-
-@bot.on_message(filters.command("delvthumb") & filters.private)
-async def del_vthumb(_, msg: Message):
-    user = await get_user(msg.from_user.id)
-    if user.get("vid_thumb") and os.path.exists(user["vid_thumb"]):
-        os.remove(user["vid_thumb"])
-    await update_user(msg.from_user.id, vid_thumb=None)
-    await msg.reply_text("🗑️ Video Thumbnail நீக்கப்பட்டது.")
-
-# ----------------- ADMIN CONTROLS -----------------
-@bot.on_message(filters.command("ap") & filters.user(ADMIN_ID))
-async def admin_ap(_, msg: Message):
-    args = msg.text.split()
-    if len(args) < 3:
-        await msg.reply_text("Usage: `/ap <user_id> <Standard|Premium|Ultimate>`")
-        return
-    t_uid = int(args[1])
-    t_plan = args[2].capitalize()
-    limits = {"Standard": 50, "Premium": 100, "Ultimate": 999999}
-    if t_plan not in limits:
-        await msg.reply_text("தவறான திட்டம்!")
-        return
-    await update_user(t_uid, plan=t_plan, daily_limit=limits[t_plan])
-    await msg.reply_text(f"✅ User `{t_uid}` plan changed to `{t_plan}`.")
-
-@bot.on_message(filters.command("rp") & filters.user(ADMIN_ID))
-async def admin_rp(_, msg: Message):
-    args = msg.text.split()
-    if len(args) < 2:
-        await msg.reply_text("Usage: `/rp <user_id>`")
-        return
-    t_uid = int(args[1])
-    await update_user(t_uid, plan="Free", daily_limit=2, daily_used=0)
-    await msg.reply_text(f"🔄 User `{t_uid}` reset to Free tier.")
-
-@bot.on_message(filters.command("ps") & filters.user(ADMIN_ID))
-async def admin_ps(_, msg: Message):
-    args = msg.text.split()
-    if len(args) < 2:
-        await msg.reply_text("Usage: `/ps <user_id>`")
-        return
-    t_uid = int(args[1])
-    u = await get_user(t_uid)
-    await msg.reply_text(f"📋 User `{t_uid}`:\nPlan: {u['plan']}\nLimit: {u['daily_limit']}\nUsed: {u['daily_used']}\nBonus: {u['bonus_credits']}")
-
-@bot.on_message(filters.command("stats") & filters.user(ADMIN_ID))
-async def admin_stats(_, msg: Message):
-    async with aiosqlite.connect("bot_data.db") as db:
-        c1 = await db.execute("SELECT COUNT(*) FROM users")
-        total = (await c1.fetchone())[0]
-        c2 = await db.execute("SELECT COUNT(*) FROM users WHERE plan != 'Free'")
-        prem = (await c2.fetchone())[0]
-    await msg.reply_text(f"📊 **Statistics:**\nTotal Users: `{total}`\nVIP Members: `{prem}`\nActive Tasks in Queue: `{task_queue.qsize()}`")
-
-@bot.on_message(filters.command("broadcast") & filters.user(ADMIN_ID))
-async def admin_broadcast(_, msg: Message):
-    if not msg.reply_to_message:
-        await msg.reply_text("மெசேஜுக்கு ரிப்ளை செய்து `/broadcast` அனுப்பவும்.")
-        return
-    async with aiosqlite.connect("bot_data.db") as db:
-        c = await db.execute("SELECT user_id FROM users")
-        rows = await c.fetchall()
-
-    sent = 0
-    for (uid,) in rows:
-        try:
-            await msg.reply_to_message.copy(uid)
-            sent += 1
-            await asyncio.sleep(0.05)
-        except Exception:
-            pass
-    await msg.reply_text(f"✅ பிராட்காஸ்ட் நிறைவடைந்தது: {sent} பயனர்கள்.")
-
-# ----------------- CALLBACK BUTTONS ROUTER -----------------
+# ----------------- CALLBACK BUTTONS -----------------
 @bot.on_callback_query()
-async def callback_handler(client: Client, query: CallbackQuery):
-    data = query.data
-    user_id = query.from_user.id
-    user = await get_user(user_id, query.from_user.first_name)
-
+async def cb_handler(client: Client, q: CallbackQuery):
+    data = q.data
     if data == "btn_login":
-        await login_cmd(client, query.message)
+        await login_cmd(client, q.message)
     elif data == "btn_plans":
-        await plans_cmd(client, query.message)
+        await plans_cmd(client, q.message)
     elif data == "btn_myplan":
-        await myplan_cmd(client, query.message)
+        await myplan_cmd(client, q.message)
     elif data == "btn_trial":
-        await trial_cmd(client, query.message)
-    elif data == "btn_bonus":
-        await bonus_cmd(client, query.message)
-    elif data == "btn_ref":
-        await referral_cmd(client, query.message)
+        await trial_cmd(client, q.message)
     elif data == "btn_buy":
-        await query.message.reply_text(
-            "💳 **PAYMENT GATEWAY (UPI):**\n\n"
-            "UPI ID: `your-upi-id@okaxis`\n\n"
-            f"பணம் செலுத்தியதும் ஸ்கிரீன்ஷாட்டை நிர்வாகிக்கு (ID: `{ADMIN_ID}`) அனுப்பினால் உடனே செயல்படுத்தப்படும்."
-        )
-    await query.answer()
+        await q.message.reply_text("UPI ID: `your-upi@okaxis`\nSend screenshot to admin.")
+    await q.answer()
 
-# ----------------- MAIN LAUNCHER -----------------
+# ----------------- MAIN BOOTSTRAP -----------------
 async def main():
+    if not DEFAULT_API_ID or not DEFAULT_API_HASH or not BOT_TOKEN:
+        print("[FATAL ERROR] API_ID, API_HASH, அல்லது BOT_TOKEN Environment Variable அமைக்கப்படவில்லை!")
+        return
+
     await init_db()
     
-    # 1. Render Health-Check Web Server-ஐ உடனடியாக தொடங்குதல் (Deploy timeout வராது)
+    # 1. Background Web server for Render health check
     await start_web_server()
 
-    # 2. Background queue worker
+    # 2. Queue worker
     asyncio.create_task(queue_worker())
 
-    # 3. Daily 12 AM reset scheduler
+    # 3. Scheduler for Midnight reset
     scheduler = AsyncIOScheduler(timezone=IST)
     scheduler.add_job(daily_reset_job, "cron", hour=0, minute=0)
     scheduler.start()
@@ -846,8 +435,13 @@ async def main():
     # 4. Start Telegram Client
     await bot.start()
     await set_bot_commands()
-    print("Mega Enterprise Saver Bot is online on Render!")
-    await asyncio.Event().wait()
+    print("========================================")
+    print("  [SUCCESS] Bot is online and polling!  ")
+    print("========================================")
+
+    # Blocks properly until termination without breaking asyncio loop
+    await idle()
+    await bot.stop()
 
 if __name__ == "__main__":
     asyncio.run(main())
