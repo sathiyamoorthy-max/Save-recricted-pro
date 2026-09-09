@@ -38,7 +38,7 @@ PORT = int(os.environ.get("PORT", "8080").strip())
 
 IST = pytz.timezone("Asia/Kolkata")
 
-# Primary Bot Client with memory session
+# Master Pyrogram Bot Client
 bot = Client(
     "pro_saver_master_session",
     api_id=DEFAULT_API_ID,
@@ -51,13 +51,13 @@ db_lock = asyncio.Lock()
 login_states = {}
 task_queue = asyncio.Queue()
 
-# ----------------- THREADED HTTP SERVER (RENDER 24/7 PING) -----------------
+# ----------------- THREADED HTTP SERVER (RENDER 24/7 KEEP-ALIVE) -----------------
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/plain; charset=utf-8")
         self.end_headers()
-        self.wfile.write(b"OK - Save Restricted Pro Bot is 100% Active!")
+        self.wfile.write(b"OK - Save Restricted Pro Bot is 100% Online!")
 
     def log_message(self, format, *args):
         return
@@ -68,9 +68,9 @@ def run_health_server():
         print(f"[*] Threaded Ping Server running on port {PORT}")
         server.serve_forever()
     except Exception as e:
-        print(f"[Health Server Error] {e}")
+        print(f"[Health Server Warning] {e}")
 
-# ----------------- DATABASE MANAGEMENT -----------------
+# ----------------- DATABASE ENGINE -----------------
 async def init_db():
     async with db_lock:
         async with aiosqlite.connect("bot_data.db") as db:
@@ -147,7 +147,7 @@ async def daily_reset_job():
             await db.commit()
     print("[RESET] 12:00 AM IST Daily usage reset completed.")
 
-# ----------------- ASYNC TASK QUEUE WORKER -----------------
+# ----------------- ASYNC QUEUE WORKER -----------------
 async def queue_worker():
     while True:
         task = await task_queue.get()
@@ -165,7 +165,6 @@ async def start_handler(client: Client, msg: Message):
     user_id = msg.from_user.id
     user = await get_user(user_id, msg.from_user.first_name)
 
-    # Referral checking
     args = msg.text.split()
     if len(args) > 1 and args[1].startswith("ref_"):
         try:
@@ -190,7 +189,7 @@ async def start_handler(client: Client, msg: Message):
         f"🏷️ **திட்டம்:** `{user['plan']}`\n"
         f"🔑 **கணக்கு:** {session_status}\n"
         f"🎯 **ஃபில்டர்:** `{user.get('file_filter', 'all').upper()}`\n\n"
-        "Restricted சேனலின் போஸ்ட் லிங்கை இங்கு அனுப்புங்கள் அல்லது `/login` செய்து உங்கள் கணக்கை இணையுங்கள்."
+        "Restricted சேனலின் போஸ்ட் லிங்கை இங்கு அனுப்புங்கள் அல்லது `/login` செய்து கணக்கை இணையுங்கள்."
     )
     buttons = InlineKeyboardMarkup([
         [InlineKeyboardButton("🔑 Connect Account", callback_data="btn_login"), InlineKeyboardButton("📦 Plans", callback_data="btn_plans")],
@@ -199,19 +198,37 @@ async def start_handler(client: Client, msg: Message):
     ])
     await msg.reply_text(text, reply_markup=buttons)
 
+# ----------------- LOGIN / SKIP COMMANDS (CRITICAL FIX) -----------------
 @bot.on_message(filters.command("login") & filters.private)
 async def login_handler(_, msg: Message):
     login_states[msg.from_user.id] = {"step": "API_ID"}
+    buttons = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⚡ Skip (Use Default Bot Keys)", callback_data="btn_skip_api")]
+    ])
     await msg.reply_text(
-        "Send your **API ID**.\n\n"
-        "Or click on **/skip** to use default bot keys."
+        "Send your **Telegram API ID**.\n\n"
+        "அல்லது பாட்டின் சொந்த சாவியைப் பயன்படுத்த கீழே உள்ள பட்டனை அழுத்தவும் அல்லது **/skip** அனுப்பவும்:",
+        reply_markup=buttons
+    )
+
+@bot.on_message(filters.command("skip") & filters.private)
+async def skip_command_handler(_, msg: Message):
+    login_states[msg.from_user.id] = {
+        "step": "PHONE",
+        "api_id": DEFAULT_API_ID,
+        "api_hash": DEFAULT_API_HASH
+    }
+    await msg.reply_text(
+        "📲 **தயவுசெய்து உங்கள் மொபைல் எண்ணை நாட்டின் குறியீட்டுடன் (+91...) அனுப்பவும்:**\n\n"
+        "உதாரணம்: `+919876543210`\n\n"
+        "ரத்து செய்ய: `/cancel`"
     )
 
 @bot.on_message(filters.command("logout") & filters.private)
 async def logout_handler(_, msg: Message):
     await update_user(msg.from_user.id, session=None)
     login_states.pop(msg.from_user.id, None)
-    await msg.reply_text("🚪 உங்கள் கணக்கு இணைப்பு வெற்றிகரமாக துண்டிக்கப்பட்டது.")
+    await msg.reply_text("🚪 உங்கள் கணக்கு இணைப்பு துண்டிக்கப்பட்டது.")
 
 @bot.on_message(filters.command("myplan") & filters.private)
 async def myplan_handler(_, msg: Message):
@@ -334,7 +351,7 @@ async def delcaption_handler(_, msg: Message):
 async def id_handler(_, msg: Message):
     await msg.reply_text(f"🆔 Your Telegram ID: `{msg.from_user.id}`")
 
-# ----------------- THUMBNAIL MANAGEMENT -----------------
+# ----------------- THUMBNAILS ENGINE -----------------
 @bot.on_message(filters.command("setthumb") & filters.private)
 async def setthumb_handler(_, msg: Message):
     if not msg.reply_to_message or not msg.reply_to_message.photo:
@@ -389,7 +406,7 @@ async def myvthumb_handler(_, msg: Message):
     else:
         await msg.reply_text("❌ Video Thumbnail எதுவும் வைக்கப்படவில்லை.")
 
-# ----------------- ROBUST OTP LOGIN / /skip WORKFLOW -----------------
+# ----------------- ROBUST TEXT & LOGIN HANDLER -----------------
 @bot.on_message(filters.text & filters.private)
 async def text_handler(client: Client, msg: Message):
     user_id = msg.from_user.id
@@ -400,38 +417,46 @@ async def text_handler(client: Client, msg: Message):
         await msg.reply_text("செயல்பாடு ரத்து செய்யப்பட்டது.")
         return
 
+    # Direct skip text fallback
+    if text.lower() == "/skip":
+        await skip_command_handler(client, msg)
+        return
+
+    # Direct phone number detection (+91...)
+    if text.startswith("+") and len(text.replace(" ", "")) >= 10 and user_id not in login_states:
+        login_states[user_id] = {
+            "step": "PHONE",
+            "api_id": DEFAULT_API_ID,
+            "api_hash": DEFAULT_API_HASH
+        }
+
     state = login_states.get(user_id)
+
+    # 1. Login State Handler
     if state:
         step = state.get("step")
 
         if step == "API_ID":
-            if text == "/skip":
-                login_states[user_id] = {"step": "PHONE", "api_id": DEFAULT_API_ID, "api_hash": DEFAULT_API_HASH}
-                await msg.reply_text(
-                    "Please send your phone number which includes country code\n"
-                    "Example: `+919876543210`\n\n"
-                    "Enter /cancel to cancel"
-                )
-            elif text.isdigit():
+            if text.isdigit():
                 login_states[user_id] = {"step": "API_HASH", "api_id": int(text)}
-                await msg.reply_text("Now send your API HASH:")
+                await msg.reply_text("Now send your **API HASH**:")
             else:
-                await msg.reply_text("Please enter a valid API ID or send /skip.")
+                await msg.reply_text("தயவுசெய்து சரியான API ID அனுப்பவும் அல்லது **/skip** தட்டவும்.")
             return
 
         if step == "API_HASH":
             login_states[user_id]["api_hash"] = text
             login_states[user_id]["step"] = "PHONE"
             await msg.reply_text(
-                "Please send your phone number which includes country code\n"
-                "Example: `+919876543210`"
+                "📲 **உங்கள் மொபைல் எண்ணை நாட்டின் குறியீட்டுடன் (+91...) அனுப்பவும்:**\n"
+                "உதாரணம்: `+919876543210`"
             )
             return
 
         if step == "PHONE":
             phone = text.replace(" ", "").replace("-", "")
-            if not phone.startswith("+"):
-                await msg.reply_text("❌ தயவுசெய்து நாட்டின் குறியீட்டுடன் (+91...) அனுப்பவும்.")
+            if not phone.startswith("+") or len(phone) < 10:
+                await msg.reply_text("❌ சரியான மொபைல் எண்ணை நாட்டின் குறியீட்டுடன் (+91...) அனுப்பவும்:")
                 return
 
             api_id = state.get("api_id", DEFAULT_API_ID)
@@ -439,7 +464,7 @@ async def text_handler(client: Client, msg: Message):
             u_client = Client(f"login_sess_{user_id}", api_id=api_id, api_hash=api_hash, in_memory=True)
             await u_client.connect()
             try:
-                status_temp = await msg.reply_text("Sending OTP...")
+                status_temp = await msg.reply_text("📩 Sending OTP to your Telegram account...")
                 code = await u_client.send_code(phone)
                 login_states[user_id].update({
                     "step": "OTP",
@@ -448,20 +473,26 @@ async def text_handler(client: Client, msg: Message):
                     "hash": code.phone_code_hash
                 })
                 await status_temp.edit_text(
-                    "Please check for an OTP in official Telegram account.\n\n"
-                    "If OTP is 12345, please send it with spaces as `1 2 3 4 5`.\n\n"
-                    "Enter /cancel to cancel the process."
+                    "📩 **உங்கள் அதிகாரப்பூர்வ Telegram ஆப்பில் OTP வந்துள்ளது.**\n\n"
+                    "பாதுகாப்பிற்காக OTP எண்களுக்கு இடையே **இடைவெளி விட்டு** அனுப்பவும்:\n\n"
+                    "👉 உதாரணம்: `1 2 3 4 5`\n\n"
+                    "ரத்து செய்ய: `/cancel`"
                 )
             except Exception as e:
                 login_states.pop(user_id, None)
                 if u_client.is_connected:
                     await u_client.disconnect()
-                await msg.reply_text(f"❌ Error sending OTP: {str(e)}")
+                await msg.reply_text(f"❌ Error sending OTP: {str(e)}\n\nமீண்டும் `/login` செய்து முயற்சிக்கவும்.")
             return
 
         if step == "OTP":
             otp = text.replace(" ", "").replace("-", "")
-            u_client = state["client"]
+            u_client = state.get("client")
+            if not u_client or not u_client.is_connected:
+                await msg.reply_text("⚠️ அமர்வு காலாவதியானது. மீண்டும் `/login` செய்யவும்.")
+                login_states.pop(user_id, None)
+                return
+
             try:
                 await u_client.sign_in(state["phone"], state["hash"], otp)
                 s_str = await u_client.export_session_string()
@@ -469,15 +500,15 @@ async def text_handler(client: Client, msg: Message):
                 await update_user(user_id, session=s_str)
                 login_states.pop(user_id, None)
                 await msg.reply_text(
-                    "✅ **Account Login Successfully!**\n\n"
-                    "Now send any restricted channel link to download files.\n"
-                    "If you get any Auth error in the future, `/logout` and `/login` again."
+                    "✅ **Account Login Successfully!** 🎉\n\n"
+                    "உங்கள் கணக்கு வெற்றிகரமாக இணைக்கப்பட்டது!\n"
+                    "இப்போது எந்தவொரு Restricted போஸ்ட் லிங்க்கையும் இங்கு அனுப்பலாம். 🚀"
                 )
             except SessionPasswordNeeded:
                 login_states[user_id]["step"] = "2FA"
-                await msg.reply_text("🔐 Two-Step Verification பாஸ்வேர்டை அனுப்பவும்:")
+                await msg.reply_text("🔐 உங்கள் கணக்கில் 2-Step Verification உள்ளது. பாஸ்வேர்டை அனுப்பவும்:")
             except (PhoneCodeInvalid, PhoneCodeExpired):
-                await msg.reply_text("❌ தவறான அல்லது காலாவதியான OTP. மீண்டும் இடைவெளி விட்டு அனுப்பவும்: `1 2 3 4 5`")
+                await msg.reply_text("❌ தவறான/காலாவதியான OTP. தயவுசெய்து எண்களுக்கு இடையே இடைவெளி விட்டு அனுப்பவும்: `1 2 3 4 5`")
             except Exception as e:
                 login_states.pop(user_id, None)
                 if u_client.is_connected:
@@ -486,16 +517,16 @@ async def text_handler(client: Client, msg: Message):
             return
 
         if step == "2FA":
-            u_client = state["client"]
+            u_client = state.get("client")
             try:
                 await u_client.check_password(password=text)
                 s_str = await u_client.export_session_string()
                 await u_client.disconnect()
                 await update_user(user_id, session=s_str)
                 login_states.pop(user_id, None)
-                await msg.reply_text("✅ **Account Login Successfully with 2FA!**")
+                await msg.reply_text("✅ **Account Login Successfully with 2FA!** 🎉")
             except PasswordHashInvalid:
-                await msg.reply_text("❌ தவறான கடவுச்சொல். மீண்டும் முயற்சிக்கவும்:")
+                await msg.reply_text("❌ தவறான 2FA பாஸ்வேர்ட். மீண்டும் பாஸ்வேர்டை அனுப்பவும்:")
             except Exception as e:
                 login_states.pop(user_id, None)
                 if u_client.is_connected:
@@ -503,16 +534,21 @@ async def text_handler(client: Client, msg: Message):
                 await msg.reply_text(f"❌ 2FA Error: {str(e)}")
             return
 
-    # Direct Link Detection
+    # 2. Direct Link Detection
     if "t.me/" in text:
+        user = await get_user(user_id)
+        if not user.get("session"):
+            btn = InlineKeyboardMarkup([[InlineKeyboardButton("🔑 Connect Account Now", callback_data="btn_login")]])
+            await msg.reply_text("⚠️ முதலில் `/login` செய்து உங்கள் கணக்கை இணைக்கவும்.", reply_markup=btn)
+            return
         await task_queue.put((execute_download, (client, msg, user_id), {}))
         await msg.reply_text("⏳ பதிவிறக்கப் பணி வரிசையில் சேர்க்கப்பட்டது...")
 
-# ----------------- DOWNLOAD ENGINE -----------------
+# ----------------- DOWNLOAD ENGINE (ORIGINAL QUALITY) -----------------
 async def execute_download(bot_client: Client, msg: Message, user_id: int):
     user = await get_user(user_id)
     if not user.get("session"):
-        await bot_client.send_message(user_id, "⚠️ முதலில் `/login` செய்து உங்கள் கணக்கை இணைக்கவும்.")
+        await bot_client.send_message(user_id, "⚠️ முதலில் `/login` செய்து கணக்கை இணைக்கவும்.")
         return
 
     match = re.search(r"t\.me/(c/)?([a-zA-Z0-9_]+)/(\d+)(?:-(\d+))?", msg.text.strip())
@@ -528,7 +564,7 @@ async def execute_download(bot_client: Client, msg: Message, user_id: int):
 
     filter_type = user.get("file_filter", "all")
     status_msg = await bot_client.send_message(user_id, "📥 டவுன்லோட் தொடங்குகிறது...")
-    u_client = Client(f"ub_exec_{user_id}", session_string=user["session"], in_memory=True)
+    u_client = Client(f"ub_{user_id}", session_string=user["session"], in_memory=True)
     await u_client.connect()
 
     try:
@@ -810,6 +846,8 @@ async def cb_handler(client: Client, q: CallbackQuery):
     user_id = q.from_user.id
     if data == "btn_login":
         await login_handler(client, q.message)
+    elif data == "btn_skip_api":
+        await skip_command_handler(client, q.message)
     elif data == "btn_plans":
         await plans_handler(client, q.message)
     elif data == "btn_myplan":
@@ -824,28 +862,25 @@ async def cb_handler(client: Client, q: CallbackQuery):
         await q.message.reply_text("💳 **Payment (UPI):**\n\nUPI ID: `your-upi@okaxis`\nபணம் செலுத்தியதும் ஸ்கிரீன்ஷாட்டை அட்மினுக்கு அனுப்பவும்.")
     await q.answer()
 
-# ----------------- MAIN BOOTSTRAP (FLAWLESS INITIALIZATION) -----------------
+# ----------------- MAIN BOOTSTRAP (100% BULLETPROOF) -----------------
 async def start_services():
-    # 1. Database Init
     await init_db()
-
-    # 2. Start Background Queue Worker
     asyncio.create_task(queue_worker())
 
-    # 3. Midnight Scheduler
     scheduler = AsyncIOScheduler(timezone=IST)
     scheduler.add_job(daily_reset_job, "cron", hour=0, minute=0)
     scheduler.start()
 
-    # 4. Start Client FIRST
+    # 1. Start Client FIRST
     await bot.start()
     print("[*] Pyrogram Client Connected Successfully!")
 
-    # 5. Set Menu Commands
+    # 2. Register Menu Commands AFTER connecting
     try:
         commands = [
             BotCommand("start", "Home"),
-            BotCommand("login", "Connect Account"),
+            BotCommand("login", "Connect Telegram Account"),
+            BotCommand("skip", "Skip API ID (Phone Login)"),
             BotCommand("logout", "Logout Session"),
             BotCommand("batch", "Batch Fetch (Standard+)"),
             BotCommand("clone", "Clone Entire Channel"),
@@ -875,7 +910,6 @@ async def start_services():
     print("  [SUCCESS] Bot is online and polling!  ")
     print("========================================")
 
-    # 6. Keep Bot Active without Freezing
     await idle()
     await bot.stop()
 
@@ -884,11 +918,10 @@ def main():
         print("[FATAL ERROR] API_ID, API_HASH, அல்லது BOT_TOKEN அமைக்கப்படவில்லை! Render Environment Variables-ஐ சரிபார்க்கவும்.")
         return
 
-    # Render Web Service Health Ping
+    # Render Web Service Health Server in thread
     t = threading.Thread(target=run_health_server, daemon=True)
     t.start()
 
-    # Safe Event Loop Launch
     loop = asyncio.get_event_loop()
     loop.run_until_complete(start_services())
 
