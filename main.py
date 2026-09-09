@@ -8,7 +8,7 @@ import pytz
 import aiosqlite
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle
 from pyrogram.types import (
     Message,
     InlineKeyboardMarkup,
@@ -25,7 +25,6 @@ from pyrogram.errors import (
 )
 
 # ----------------- CONFIGURATION -----------------
-# Render Dashboard -> Environment Variables
 API_ID_RAW = os.environ.get("API_ID", "").strip()
 DEFAULT_API_ID = int(API_ID_RAW) if API_ID_RAW.isdigit() else 0
 DEFAULT_API_HASH = os.environ.get("API_HASH", "").strip()
@@ -39,7 +38,7 @@ PORT = int(os.environ.get("PORT", "8080").strip())
 
 IST = pytz.timezone("Asia/Kolkata")
 
-# Stateless in-memory session to prevent SQLite file lock on Render restarts
+# In-memory session prevents SQLite file lock crashes on container restarts
 bot = Client(
     "pro_saver_live_session",
     api_id=DEFAULT_API_ID,
@@ -50,13 +49,13 @@ bot = Client(
 
 login_states = {}
 
-# ----------------- INDEPENDENT HEALTH PING SERVER (THREADED) -----------------
+# ----------------- THREADED HTTP HEALTH SERVER -----------------
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/plain; charset=utf-8")
         self.end_headers()
-        self.wfile.write(b"OK - Bot Engine Active")
+        self.wfile.write(b"OK - Save Restricted Bot is Running!")
 
     def log_message(self, format, *args):
         return
@@ -69,7 +68,7 @@ def run_health_server():
     except Exception as e:
         print(f"[Health Server Warning] {e}")
 
-# ----------------- DATABASE -----------------
+# ----------------- DATABASE MANAGEMENT -----------------
 async def init_db():
     async with aiosqlite.connect("bot_data.db") as db:
         await db.execute("""
@@ -141,38 +140,12 @@ async def daily_reset_job():
         await db.commit()
     print("[RESET] 12:00 AM IST Daily usage reset completed.")
 
-# ----------------- COMMANDS MENU -----------------
-async def setup_commands():
-    commands = [
-        BotCommand("start", "Home"),
-        BotCommand("login", "Connect Telegram Account"),
-        BotCommand("logout", "Disconnect Account"),
-        BotCommand("batch", "Batch Fetch (Standard+)"),
-        BotCommand("clone", "Clone Entire Channel"),
-        BotCommand("extract", "Extract Playlist Index"),
-        BotCommand("filter", "Set Media Filter"),
-        BotCommand("setcaption", "Custom Caption & Watermark"),
-        BotCommand("delcaption", "Delete Caption"),
-        BotCommand("referral", "Refer & Earn"),
-        BotCommand("bonus", "Daily Streak Bonus"),
-        BotCommand("trial", "1-Day Free Trial"),
-        BotCommand("myplan", "My Plan & Limits"),
-        BotCommand("plans", "View VIP Plans"),
-        BotCommand("id", "Get Telegram ID"),
-        BotCommand("setthumb", "Set Document Thumbnail"),
-        BotCommand("delthumb", "Delete Document Thumbnail"),
-        BotCommand("setvthumb", "Set Video Thumbnail"),
-        BotCommand("delvthumb", "Delete Video Thumbnail")
-    ]
-    await bot.set_bot_commands(commands)
-
 # ----------------- USER COMMANDS -----------------
 @bot.on_message(filters.command("start") & filters.private)
 async def start_handler(client: Client, msg: Message):
     user_id = msg.from_user.id
     user = await get_user(user_id, msg.from_user.first_name)
 
-    # Referral checking
     args = msg.text.split()
     if len(args) > 1 and args[1].startswith("ref_"):
         try:
@@ -443,7 +416,7 @@ async def text_handler(client: Client, msg: Message):
                 await msg.reply_text(f"❌ Error: {str(e)}")
             return
 
-    # Direct Link Detection
+    # Direct Link Processing
     if "t.me/" in text:
         asyncio.create_task(execute_download(client, msg, user_id))
 
@@ -694,30 +667,68 @@ async def cb_handler(client: Client, q: CallbackQuery):
         await q.message.reply_text("UPI ID: `your-upi@okaxis`\nபணம் செலுத்தியதும் ஸ்கிரீன்ஷாட்டை நிர்வாகிக்கு அனுப்பவும்.")
     await q.answer()
 
-# ----------------- BOOTSTRAP -----------------
+# ----------------- MAIN BOOTSTRAP (100% FIXED) -----------------
+async def start_services():
+    # 1. Database Initialize
+    await init_db()
+
+    # 2. Midnight Reset Scheduler
+    scheduler = AsyncIOScheduler(timezone=IST)
+    scheduler.add_job(daily_reset_job, "cron", hour=0, minute=0)
+    scheduler.start()
+
+    # 3. Start Pyrogram Client FIRST (Fixes ConnectionError)
+    await bot.start()
+    print("[*] Pyrogram Client Connected Successfully!")
+
+    # 4. Set Commands Menu AFTER connecting
+    try:
+        commands = [
+            BotCommand("start", "Home"),
+            BotCommand("login", "Connect Account"),
+            BotCommand("logout", "Logout Session"),
+            BotCommand("batch", "Batch Fetch"),
+            BotCommand("clone", "Clone Channel"),
+            BotCommand("extract", "Extract Playlist"),
+            BotCommand("filter", "Filter Media"),
+            BotCommand("setcaption", "Set Caption"),
+            BotCommand("delcaption", "Remove Caption"),
+            BotCommand("referral", "Refer Friends"),
+            BotCommand("bonus", "Daily Bonus"),
+            BotCommand("trial", "Free Trial"),
+            BotCommand("myplan", "My Plan"),
+            BotCommand("plans", "VIP Plans"),
+            BotCommand("id", "Get ID"),
+            BotCommand("setthumb", "Set Thumb"),
+            BotCommand("delthumb", "Delete Thumb"),
+            BotCommand("setvthumb", "Set Video Thumb"),
+            BotCommand("delvthumb", "Delete Video Thumb")
+        ]
+        await bot.set_bot_commands(commands)
+        print("[*] Commands menu registered successfully!")
+    except Exception as e:
+        print(f"[Warning] Menu register: {e}")
+
+    print("========================================")
+    print("  [SUCCESS] Bot is online and polling!  ")
+    print("========================================")
+
+    # 5. Keep client running properly
+    await idle()
+    await bot.stop()
+
 def main():
     if not DEFAULT_API_ID or not DEFAULT_API_HASH or not BOT_TOKEN:
         print("[FATAL ERROR] API_ID, API_HASH, அல்லது BOT_TOKEN அமைக்கப்படவில்லை!")
         return
 
-    # 1. Start Threaded Ping Server
+    # Render Web Service timeout ஆகாமல் இருக்க Ping Server-ஐ தனி Thread-ல் இயக்குதல்
     t = threading.Thread(target=run_health_server, daemon=True)
     t.start()
 
-    # 2. Database init
-    asyncio.get_event_loop().run_until_complete(init_db())
-
-    # 3. Scheduler init
-    scheduler = AsyncIOScheduler(timezone=IST)
-    scheduler.add_job(daily_reset_job, "cron", hour=0, minute=0)
-    scheduler.start()
-
-    # 4. Set commands menu
-    asyncio.get_event_loop().run_until_complete(setup_commands())
-
-    print("[*] Starting Pyrogram Bot Polling...")
-    # Safe and native blocking call that keeps long-polling alive
-    bot.run()
+    # Asyncio loop மூலம் சேவைகளை துல்லியமாகத் தொடங்குதல்
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(start_services())
 
 if __name__ == "__main__":
     main()
