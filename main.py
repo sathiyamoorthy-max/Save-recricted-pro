@@ -24,6 +24,7 @@ from pyrogram.errors import (
     FloodWait,
     PeerIdInvalid,
     ChannelPrivate,
+    AuthKeyUnregistered,
     UserAlreadyParticipant
 )
 
@@ -41,7 +42,7 @@ PORT = int(os.environ.get("PORT", "8080").strip())
 
 IST = pytz.timezone("Asia/Kolkata")
 
-# Main Pyrogram Bot
+# Master Bot Client
 bot = Client(
     "pro_saver_master_session",
     api_id=DEFAULT_API_ID,
@@ -54,28 +55,32 @@ db_lock = asyncio.Lock()
 login_states = {}
 task_queue = asyncio.Queue()
 
-# ----------------- MULTI-LANGUAGE DICTIONARY -----------------
+# ----------------- MULTI-LANGUAGE ENGINE -----------------
 LANG = {
     "ta": {
-        "welcome": "👋 **வணக்கம் {name}!**\n\nஇது உலகின் நம்பர் 1 **Restricted Saver, Cloner & Media Extractor Bot**.\n\n🏷️ **திட்டம்:** `{plan}`\n🔑 **கணக்கு:** {session}\n🎯 **மீடியா ஃபில்டர்:** `{filter}`\n\nRestricted சேனலின் போஸ்ட் லிங்கை இங்கு அனுப்புங்கள் அல்லது `/login` செய்து கணக்கை இணையுங்கள்.",
-        "btn_login": "🔑 கணக்கு இணைக்க",
-        "btn_plans": "📦 திட்டங்கள்",
+        "welcome": "👋 **வணக்கம் {name}!**\n\nஇது உலகின் நம்பர் 1 **Save Restricted, Batch & Channel Cloner Bot**.\n\n🏷️ **திட்டம்:** `{plan}`\n🔑 **கணக்கு நிலை:** {session}\n🎯 **மீடியா ஃபில்டர்:** `{filter}`\n\nRestricted சேனலின் போஸ்ட் லிங்கை இங்கு அனுப்பவும் அல்லது கணக்கை இணைக்க கீழே உள்ள பட்டன்களைப் பயன்படுத்தவும்.",
+        "btn_session": "⚡ String Session லாகின்",
+        "btn_otp": "📲 Mobile Number + OTP லாகின்",
+        "btn_api": "🔑 Custom API ID/Hash லாகின்",
+        "btn_plans": "📦 VIP திட்டங்கள்",
         "btn_myplan": "📊 எனது திட்டம்",
         "btn_trial": "🎁 இலவச ட்ரையல்",
         "btn_bonus": "🎁 தினசரி போனஸ்",
         "btn_ref": "👥 ரெஃபர் & சம்பாதி",
         "btn_lang": "🌐 மொழியை மாற்ற",
         "btn_buy": "💳 வாங்க (UPI)",
-        "not_connected": "⚠️ முதலில் `/login` செய்து உங்கள் Telegram கணக்கை இணைக்கவும்.",
-        "limit_reached": "⛔ உங்கள் இன்றைய இலவச வரம்பு முடிந்தது. வரம்பற்ற பதிவிறக்கத்திற்கு விஐபி பிளான் எடுக்கவும்.",
+        "not_connected": "⚠️ முதலில் உங்கள் Telegram கணக்கை இணைக்கவும். கீழே உள்ள பட்டனை அழுத்தவும்:",
+        "limit_reached": "⛔ உங்கள் இன்றைய வரம்பு முடிந்தது. கூடுதல் பதிவிறக்கங்களுக்கு விஐபி பிளான் எடுக்கவும்.",
         "downloading": "📥 பதிவிறக்கப்படுகிறது... ID: {id}",
         "uploading": "📤 பதிவேற்றப்படுகிறது... ID: {id}",
         "success": "✅ பதிவிறக்கம் வெற்றிகரமாக நிறைவடைந்தது!",
         "error": "❌ பிழை: {err}"
     },
     "en": {
-        "welcome": "👋 **Hello {name}!**\n\nWelcome to World's Best **Restricted Saver, Cloner & Media Extractor Bot**.\n\n🏷️ **Plan:** `{plan}`\n🔑 **Session:** {session}\n🎯 **Filter:** `{filter}`\n\nSend any restricted link to download or use commands from menu.",
-        "btn_login": "🔑 Connect Account",
+        "welcome": "👋 **Hello {name}!**\n\nWelcome to the **Save Restricted, Batch & Channel Cloner Bot**.\n\n🏷️ **Plan:** `{plan}`\n🔑 **Account Status:** {session}\n🎯 **Media Filter:** `{filter}`\n\nSend any restricted post link to download, or connect your account using the buttons below.",
+        "btn_session": "⚡ String Session Login",
+        "btn_otp": "📲 Mobile Number + OTP Login",
+        "btn_api": "🔑 Custom API ID/Hash Login",
         "btn_plans": "📦 VIP Plans",
         "btn_myplan": "📊 My Plan",
         "btn_trial": "🎁 Free Trial",
@@ -83,29 +88,12 @@ LANG = {
         "btn_ref": "👥 Refer & Earn",
         "btn_lang": "🌐 Change Language",
         "btn_buy": "💳 Buy Plan (UPI)",
-        "not_connected": "⚠️ Please `/login` first to connect your Telegram account.",
-        "limit_reached": "⛔ Daily free limit reached. Upgrade to VIP for unlimited downloads.",
+        "not_connected": "⚠️ Please connect your Telegram account first. Tap the button below:",
+        "limit_reached": "⛔ Daily limit reached. Upgrade to VIP for unlimited downloads.",
         "downloading": "📥 Downloading... ID: {id}",
         "uploading": "📤 Uploading... ID: {id}",
         "success": "✅ Download completed successfully!",
         "error": "❌ Error: {err}"
-    },
-    "hi": {
-        "welcome": "👋 **नमस्ते {name}!**\n\nप्रतिबंधित सामग्री सेवर, बैच और चैनल क्लोनर बॉट में आपका स्वागत है।\n\n🏷️ **प्लान:** `{plan}`\n🔑 **सत्र:** {session}\n🎯 **फ़िल्टर:** `{filter}`",
-        "btn_login": "🔑 खाता जोड़ें",
-        "btn_plans": "📦 वीआईपी प्लान्स",
-        "btn_myplan": "📊 मेरा प्लान",
-        "btn_trial": "🎁 फ्री ट्रायल",
-        "btn_bonus": "🎁 दैनिक बोनस",
-        "btn_ref": "👥 रेफर और कमाएं",
-        "btn_lang": "🌐 भाषा बदलें",
-        "btn_buy": "💳 खरीदें (UPI)",
-        "not_connected": "⚠️ कृपया पहले `/login` करके अपना खाता जोड़ें।",
-        "limit_reached": "⛔ दैनिक सीमा समाप्त। असीमित के लिए अपग्रेड करें।",
-        "downloading": "📥 डाउनलोड हो रहा है... ID: {id}",
-        "uploading": "📤 अपलोड हो रहा है... ID: {id}",
-        "success": "✅ सफलतापूर्वक पूर्ण हुआ!",
-        "error": "❌ त्रुटि: {err}"
     }
 }
 
@@ -115,7 +103,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-type", "text/plain; charset=utf-8")
         self.end_headers()
-        self.wfile.write(b"OK - Save Restricted Bot is 100% Online 24/7!")
+        self.wfile.write(b"OK - Save Restricted Bot is running 24/7!")
 
     def log_message(self, format, *args):
         return
@@ -163,7 +151,6 @@ async def get_user(user_id, name="User"):
             cursor = await db.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
             user = await cursor.fetchone()
             if not user:
-                # Admin automatically gets Ultimate Lifetime Unlimited
                 plan = "Ultimate" if user_id == ADMIN_ID else "Free"
                 limit = 9999999 if user_id == ADMIN_ID else 2
                 await db.execute(
@@ -183,7 +170,6 @@ async def update_user(user_id, **kwargs):
             await db.commit()
 
 async def deduct_usage(user_id):
-    # Absolute 100% Unlimited bypass for Admin and Ultimate users
     if user_id == ADMIN_ID:
         return True
 
@@ -227,7 +213,7 @@ async def queue_worker():
         finally:
             task_queue.task_done()
 
-# ----------------- COMMANDS & HANDLERS -----------------
+# ----------------- CORE INTERACTION COMMANDS -----------------
 @bot.on_message(filters.command("start") & filters.private)
 async def start_handler(client: Client, msg: Message):
     user_id = msg.from_user.id
@@ -246,7 +232,7 @@ async def start_handler(client: Client, msg: Message):
                         await db.execute("UPDATE users SET bonus_credits = bonus_credits + 2, ref_count = ref_count + 1 WHERE user_id = ?", (ref_id,))
                         await db.commit()
                 try:
-                    await bot.send_message(ref_id, f"🎉 **புதிய ரெஃபரல்!** {msg.from_user.first_name} உங்கள் லிங்க் மூலம் இணைந்தார். **+2 போனஸ் டவுன்லோட்கள்** கிடைத்தன!")
+                    await bot.send_message(ref_id, f"🎉 **புதிய ரெஃபரல்!** {msg.from_user.first_name} உங்கள் லிங்க் மூலம் இணைந்தார். **+2 போனஸ் டவுன்லோட்கள்** சேர்க்கப்பட்டன!")
                 except Exception:
                     pass
         except Exception:
@@ -262,46 +248,27 @@ async def start_handler(client: Client, msg: Message):
         filter=user.get("file_filter", "all").upper()
     )
     buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton(t["btn_login"], callback_data="btn_login"), InlineKeyboardButton(t["btn_plans"], callback_data="btn_plans")],
-        [InlineKeyboardButton(t["btn_myplan"], callback_data="btn_myplan"), InlineKeyboardButton(t["btn_trial"], callback_data="btn_trial")],
-        [InlineKeyboardButton(t["btn_bonus"], callback_data="btn_bonus"), InlineKeyboardButton(t["btn_ref"], callback_data="btn_ref")],
-        [InlineKeyboardButton(t["btn_lang"], callback_data="btn_lang")]
+        [InlineKeyboardButton(t["btn_session"], callback_data="login_session"), InlineKeyboardButton(t["btn_otp"], callback_data="login_otp")],
+        [InlineKeyboardButton(t["btn_api"], callback_data="login_api")],
+        [InlineKeyboardButton(t["btn_plans"], callback_data="btn_plans"), InlineKeyboardButton(t["btn_myplan"], callback_data="btn_myplan")],
+        [InlineKeyboardButton(t["btn_bonus"], callback_data="btn_bonus"), InlineKeyboardButton(t["btn_trial"], callback_data="btn_trial")],
+        [InlineKeyboardButton(t["btn_ref"], callback_data="btn_ref"), InlineKeyboardButton(t["btn_lang"], callback_data="btn_lang")]
     ])
     await msg.reply_text(text, reply_markup=buttons)
 
-# ----------------- MULTI-LANGUAGE SELECTION -----------------
-@bot.on_message(filters.command("lang") & filters.private)
-async def lang_command(_, msg: Message):
-    btn = InlineKeyboardMarkup([
-        [InlineKeyboardButton("தமிழ் 🇮🇳", callback_data="set_ta"), InlineKeyboardButton("English 🌐", callback_data="set_en")],
-        [InlineKeyboardButton("हिन्दी 🇮🇳", callback_data="set_hi")]
-    ])
-    await msg.reply_text("மொழியைத் தேர்ந்தெடுக்கவும் / Select Language:", reply_markup=btn)
-
-# ----------------- LOGIN / SKIP WORKFLOW (FIXED API ID & PHONE) -----------------
 @bot.on_message(filters.command("login") & filters.private)
-async def login_handler(_, msg: Message):
-    login_states[msg.from_user.id] = {"step": "API_ID"}
+async def login_menu_cmd(_, msg: Message):
     buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚡ Skip (Use Default Bot Keys)", callback_data="btn_skip_api")]
+        [InlineKeyboardButton("⚡ String Session Login (Recommended)", callback_data="login_session")],
+        [InlineKeyboardButton("📲 Mobile Number + OTP Login", callback_data="login_otp")],
+        [InlineKeyboardButton("🔑 Custom API ID + API HASH Login", callback_data="login_api")]
     ])
     await msg.reply_text(
-        "Send your **Telegram API ID**.\n\n"
-        "அல்லது பாட்டின் சொந்த சாவியைப் பயன்படுத்த கீழே உள்ள பட்டனை அழுத்தவும் அல்லது **/skip** அனுப்பவும்:",
+        "🔑 **உள்நுழைவு முறையைத் தேர்ந்தெடுக்கவும் (Select Login Method):**\n\n"
+        "1. **String Session Login:** மிக எளிதானது மற்றும் பாதுகாப்பானது. OTP தாமதம் இல்லாமல் உடனடியாக வேலை செய்யும்.\n"
+        "2. **Mobile Number + OTP:** தொலைபேசி எண் மற்றும் Telegram OTP வழியாக உள்நுழைதல்.\n"
+        "3. **Custom API ID/HASH:** பயனரின் சொந்த API சான்றுகளுடன் உள்நுழைதல்.",
         reply_markup=buttons
-    )
-
-@bot.on_message(filters.command("skip") & filters.private)
-async def skip_command_handler(_, msg: Message):
-    login_states[msg.from_user.id] = {
-        "step": "PHONE",
-        "api_id": DEFAULT_API_ID,
-        "api_hash": DEFAULT_API_HASH
-    }
-    await msg.reply_text(
-        "📲 **தயவுசெய்து உங்கள் மொபைல் எண்ணை நாட்டின் குறியீட்டுடன் (+91...) அனுப்பவும்:**\n\n"
-        "உதாரணம்: `+919876543210`\n\n"
-        "ரத்து செய்ய: `/cancel`"
     )
 
 @bot.on_message(filters.command("logout") & filters.private)
@@ -431,7 +398,7 @@ async def delcaption_handler(_, msg: Message):
 async def id_handler(_, msg: Message):
     await msg.reply_text(f"🆔 Your Telegram ID: `{msg.from_user.id}`")
 
-# ----------------- THUMBNAIL MANAGEMENT -----------------
+# ----------------- THUMBNAILS -----------------
 @bot.on_message(filters.command("setthumb") & filters.private)
 async def setthumb_handler(_, msg: Message):
     if not msg.reply_to_message or not msg.reply_to_message.photo:
@@ -486,9 +453,9 @@ async def myvthumb_handler(_, msg: Message):
     else:
         await msg.reply_text("❌ Video Thumbnail எதுவும் வைக்கப்படவில்லை.")
 
-# ----------------- LOGIN / OTP / TEXT PROCESSOR -----------------
+# ----------------- COMPREHENSIVE LOGIN & INPUT HANDLER -----------------
 @bot.on_message(filters.text & filters.private)
-async def text_handler(client: Client, msg: Message):
+async def text_input_router(client: Client, msg: Message):
     user_id = msg.from_user.id
     text = msg.text.strip()
     user = await get_user(user_id)
@@ -500,39 +467,38 @@ async def text_handler(client: Client, msg: Message):
         await msg.reply_text("செயல்பாடு ரத்து செய்யப்பட்டது.")
         return
 
-    if text.lower() == "/skip":
-        await skip_command_handler(client, msg)
-        return
-
-    # Auto phone number format trigger
-    if text.startswith("+") and len(text.replace(" ", "")) >= 10 and user_id not in login_states:
-        login_states[user_id] = {
-            "step": "PHONE",
-            "api_id": DEFAULT_API_ID,
-            "api_hash": DEFAULT_API_HASH
-        }
-
+    # Method 1: String Session input detection
     state = login_states.get(user_id)
+    if state and state.get("step") == "SESSION_STRING":
+        try:
+            status_temp = await msg.reply_text("🔍 Validating Session String...")
+            test_client = Client(f"val_sess_{user_id}", api_id=DEFAULT_API_ID, api_hash=DEFAULT_API_HASH, session_string=text, in_memory=True)
+            await test_client.start()
+            me = await test_client.get_me()
+            await test_client.stop()
+            await update_user(user_id, session=text)
+            login_states.pop(user_id, None)
+            await status_temp.edit_text(f"✅ **Account Login Successfully!**\n\n👤 **User:** {me.first_name} (`{me.id}`)\nஇப்போது எந்தவொரு Restricted போஸ்ட் லிங்க்கையும் பதிவிறக்கம் செய்யலாம்! 🚀")
+            return
+        except Exception as e:
+            await msg.reply_text(f"❌ தவறான Session String: {str(e)}\n\nமீண்டும் சரியான Pyrogram Session String-ஐ அனுப்பவும்:")
+            return
 
-    # 1. Login State Machine
+    # Method 2: API ID & Hash step handler
     if state:
         step = state.get("step")
-
         if step == "API_ID":
             if text.isdigit():
                 login_states[user_id] = {"step": "API_HASH", "api_id": int(text)}
                 await msg.reply_text("இப்போது உங்கள் **API HASH**-ஐ அனுப்பவும்:")
             else:
-                await msg.reply_text("தயவுசெய்து சரியான API ID அனுப்பவும் அல்லது **/skip** தட்டவும்.")
+                await msg.reply_text("தயவுசெய்து சரியான API ID-ஐ அனுப்பவும்:")
             return
 
         if step == "API_HASH":
             login_states[user_id]["api_hash"] = text
             login_states[user_id]["step"] = "PHONE"
-            await msg.reply_text(
-                "📲 **உங்கள் மொபைல் எண்ணை நாட்டின் குறியீட்டுடன் (+91...) அனுப்பவும்:**\n"
-                "உதாரணம்: `+919876543210`"
-            )
+            await msg.reply_text("📲 **உங்கள் மொபைல் எண்ணை நாட்டின் குறியீட்டுடன் (+91...) அனுப்பவும்:**\nஉதாரணம்: `+919876543210`")
             return
 
         if step == "PHONE":
@@ -555,7 +521,7 @@ async def text_handler(client: Client, msg: Message):
                     "hash": code.phone_code_hash
                 })
                 await status_temp.edit_text(
-                    "📩 **உங்கள் அதிகாரப்பூர்வ Telegram ஆப்பில் OTP வந்துள்ளது.**\n\n"
+                    "📩 **உங்கள் Telegram கணக்கிற்கு OTP வந்துள்ளது.**\n\n"
                     "பாதுகாப்பிற்காக OTP எண்களுக்கு இடையே **இடைவெளி விட்டு** அனுப்பவும்:\n\n"
                     "👉 உதாரணம்: `1 2 3 4 5`\n\n"
                     "ரத்து செய்ய: `/cancel`"
@@ -581,16 +547,12 @@ async def text_handler(client: Client, msg: Message):
                 await u_client.disconnect()
                 await update_user(user_id, session=s_str, custom_api_id=state.get("api_id"), custom_api_hash=state.get("api_hash"))
                 login_states.pop(user_id, None)
-                await msg.reply_text(
-                    "✅ **Account Login Successfully!** 🎉\n\n"
-                    "உங்கள் கணக்கு வெற்றிகரமாக இணைக்கப்பட்டது!\n"
-                    "இப்போது எந்தவொரு Restricted போஸ்ட் லிங்க்கையும் இங்கு அனுப்பலாம். 🚀"
-                )
+                await msg.reply_text("✅ **Account Login Successfully!** 🎉\n\nஉங்கள் கணக்கு வெற்றிகரமாக இணைக்கப்பட்டது! 🚀")
             except SessionPasswordNeeded:
                 login_states[user_id]["step"] = "2FA"
                 await msg.reply_text("🔐 உங்கள் கணக்கில் 2-Step Verification உள்ளது. பாஸ்வேர்டை அனுப்பவும்:")
             except (PhoneCodeInvalid, PhoneCodeExpired):
-                await msg.reply_text("❌ தவறான/காலாவதியான OTP. தயவுசெய்து எண்களுக்கு இடையே இடைவெளி விட்டு அனுப்பவும்: `1 2 3 4 5`")
+                await msg.reply_text("❌ தவறான/காலாவதியான OTP. இடைவெளி விட்டு அனுப்பவும்: `1 2 3 4 5`")
             except Exception as e:
                 login_states.pop(user_id, None)
                 if u_client.is_connected:
@@ -608,7 +570,7 @@ async def text_handler(client: Client, msg: Message):
                 login_states.pop(user_id, None)
                 await msg.reply_text("✅ **Account Login Successfully with 2FA!** 🎉")
             except PasswordHashInvalid:
-                await msg.reply_text("❌ தவறான 2FA பாஸ்வேர்ட். மீண்டும் பாஸ்வேர்டை அனுப்பவும்:")
+                await msg.reply_text("❌ தவறான 2FA பாஸ்வேர்ட். மீண்டும் அனுப்பவும்:")
             except Exception as e:
                 login_states.pop(user_id, None)
                 if u_client.is_connected:
@@ -616,16 +578,19 @@ async def text_handler(client: Client, msg: Message):
                 await msg.reply_text(f"❌ 2FA Error: {str(e)}")
             return
 
-    # 2. Direct Link Detection
+    # Direct Link Detection
     if "t.me/" in text:
         if not user.get("session"):
-            btn = InlineKeyboardMarkup([[InlineKeyboardButton(t["btn_login"], callback_data="btn_login")]])
+            btn = InlineKeyboardMarkup([
+                [InlineKeyboardButton("⚡ String Session Login", callback_data="login_session")],
+                [InlineKeyboardButton("📲 Phone + OTP Login", callback_data="login_otp")]
+            ])
             await msg.reply_text(t["not_connected"], reply_markup=btn)
             return
         await task_queue.put((execute_download, (client, msg, user_id), {}))
         await msg.reply_text("⏳ பதிவிறக்கப் பணி வரிசையில் சேர்க்கப்பட்டது...")
 
-# ----------------- REAL REFINED DOWNLOAD ENGINE (NO MISSING FILES) -----------------
+# ----------------- REFINED HIGH-SPEED DOWNLOAD ENGINE -----------------
 async def execute_download(bot_client: Client, msg: Message, user_id: int):
     user = await get_user(user_id)
     lang = user.get("lang", "ta")
@@ -635,8 +600,7 @@ async def execute_download(bot_client: Client, msg: Message, user_id: int):
         await bot_client.send_message(user_id, t["not_connected"])
         return
 
-    # Parse public or private channel link format
-    # Matches: t.me/c/12345/678 or t.me/c/12345/678-685 or t.me/channelname/678
+    # Parse public or private channel post links
     match = re.search(r"t\.me/(?:c/)?([a-zA-Z0-9_]+)/(\d+)(?:-(\d+))?", msg.text.strip())
     if not match:
         await bot_client.send_message(user_id, "❌ தவறான டெலிகிராம் லிங்க்.")
@@ -661,7 +625,7 @@ async def execute_download(bot_client: Client, msg: Message, user_id: int):
     u_client = Client(f"ub_exec_{user_id}", api_id=api_id, api_hash=api_hash, session_string=user["session"], in_memory=True)
     await u_client.connect()
 
-    # Pre-cache channel to avoid PeerIdInvalid/ChannelPrivate
+    # Pre-cache channel access to avoid PeerIdInvalid/ChannelPrivate
     try:
         await u_client.get_chat(chat_id)
     except Exception:
@@ -702,7 +666,7 @@ async def execute_download(bot_client: Client, msg: Message, user_id: int):
 
                 await status_msg.edit_text(t["downloading"].format(id=cur_id))
 
-                # Direct High-Speed Download
+                # Download File locally
                 f_path = await target.download()
 
                 await status_msg.edit_text(t["uploading"].format(id=cur_id))
@@ -734,7 +698,7 @@ async def execute_download(bot_client: Client, msg: Message, user_id: int):
         if downloaded_count > 0:
             await status_msg.edit_text(t["success"])
         else:
-            await status_msg.edit_text("⚠️ இந்த ஐடியில் பதிவிறக்க மீடியா எதுவும் கிடைக்கவில்லை (Empty Message or Restricted Peer).")
+            await status_msg.edit_text("⚠️ இந்த ஐடியில் பதிவிறக்க மீடியா எதுவும் கிடைக்கவில்லை.")
     except Exception as e:
         await status_msg.edit_text(t["error"].format(err=str(e)))
     finally:
@@ -897,7 +861,7 @@ async def execute_extract(bot_client: Client, msg: Message, user: dict, target):
             f.write(f"--- Playlist for {target} ---\n\n")
             async for post in u_client.get_chat_history(target):
                 count += 1
-                media_type = "Document" if post.document else "Video" if post.video else "Audio" if post.photo else "Media"
+                media_type = "Document" if post.document else "Video" if post.video else "Audio" if post.audio else "Photo" if post.photo else "Text"
                 f.write(f"{count}. {media_type} | ID: {post.id} | https://t.me/c/{str(target).replace('-100', '')}/{post.id}\n")
         await bot_client.send_document(user_id, file_name, caption=f"✅ {count} பதிவுகள் தொகுக்கப்பட்டன.")
         if os.path.exists(file_name):
@@ -979,10 +943,27 @@ async def admin_broadcast(_, msg: Message):
 async def cb_handler(client: Client, q: CallbackQuery):
     data = q.data
     user_id = q.from_user.id
-    if data == "btn_login":
-        await login_handler(client, q.message)
-    elif data == "btn_skip_api":
-        await skip_command_handler(client, q.message)
+    if data == "login_session":
+        login_states[user_id] = {"step": "SESSION_STRING"}
+        await q.message.reply_text(
+            "⚡ **Pyrogram String Session Login:**\n\n"
+            "உங்கள் Pyrogram String Session-ஐ கீழே பேஸ்ட் செய்து அனுப்பவும்:\n\n"
+            "ரத்து செய்ய: `/cancel`"
+        )
+    elif data == "login_otp":
+        login_states[user_id] = {
+            "step": "PHONE",
+            "api_id": DEFAULT_API_ID,
+            "api_hash": DEFAULT_API_HASH
+        }
+        await q.message.reply_text(
+            "📲 **உங்கள் மொபைல் எண்ணை நாட்டின் குறியீட்டுடன் (+91...) அனுப்பவும்:**\n\n"
+            "உதாரணம்: `+919876543210`\n\n"
+            "ரத்து செய்ய: `/cancel`"
+        )
+    elif data == "login_api":
+        login_states[user_id] = {"step": "API_ID"}
+        await q.message.reply_text("Send your **Telegram API ID** (Number only):")
     elif data == "btn_plans":
         await plans_handler(client, q.message)
     elif data == "btn_myplan":
@@ -996,14 +977,10 @@ async def cb_handler(client: Client, q: CallbackQuery):
     elif data == "btn_buy":
         await q.message.reply_text("💳 **Payment (UPI):**\n\nUPI ID: `your-upi@okaxis`\nபணம் செலுத்தியதும் ஸ்கிரீன்ஷாட்டை அட்மினுக்கு அனுப்பவும்.")
     elif data == "btn_lang":
-        btn = InlineKeyboardMarkup([
-            [InlineKeyboardButton("தமிழ் 🇮🇳", callback_data="set_ta"), InlineKeyboardButton("English 🌐", callback_data="set_en")],
-            [InlineKeyboardButton("हिन्दी 🇮🇳", callback_data="set_hi")]
-        ])
-        await q.message.edit_text("மொழியைத் தேர்ந்தெடுக்கவும் / Select Language:", reply_markup=btn)
+        await lang_cmd(client, q.message)
     elif data.startswith("set_"):
-        new_lang = data.replace("set_", "")
-        await update_user(user_id, lang=new_lang)
+        chosen_lang = data.replace("set_", "")
+        await update_user(user_id, lang=chosen_lang)
         await q.answer("Language Updated!")
         await start_handler(client, q.message)
     await q.answer()
@@ -1017,29 +994,26 @@ async def start_services():
     scheduler.add_job(daily_reset_job, "cron", hour=0, minute=0)
     scheduler.start()
 
-    # Start Client First
     await bot.start()
     print("[*] Pyrogram Client Connected Successfully!")
 
-    # Set Menu Commands
     try:
         commands = [
             BotCommand("start", "Home"),
-            BotCommand("login", "Connect Telegram Account"),
-            BotCommand("skip", "Skip API ID (Phone Login)"),
-            BotCommand("logout", "Logout Session"),
+            BotCommand("login", "Connect Account (Session/OTP/API)"),
+            BotCommand("logout", "Disconnect Account"),
             BotCommand("batch", "Batch Fetch (Standard+)"),
             BotCommand("clone", "Clone Entire Channel"),
             BotCommand("extract", "Extract Playlist Index"),
-            BotCommand("filter", "Set Media Filter"),
+            BotCommand("filter", "Filter Media"),
+            BotCommand("lang", "Change Language"),
             BotCommand("setcaption", "Custom Caption & Watermark"),
             BotCommand("delcaption", "Delete Caption"),
             BotCommand("referral", "Refer & Earn"),
             BotCommand("bonus", "Daily Streak Bonus"),
-            BotCommand("trial", "1-Day Free Trial"),
+            BotCommand("trial", "Free Trial"),
             BotCommand("myplan", "My Plan & Limits"),
             BotCommand("plans", "View VIP Plans"),
-            BotCommand("lang", "Change Language"),
             BotCommand("id", "Get Telegram ID"),
             BotCommand("setthumb", "Set Document Thumbnail"),
             BotCommand("delthumb", "Delete Document Thumbnail"),
@@ -1065,7 +1039,6 @@ def main():
         print("[FATAL ERROR] API_ID, API_HASH, அல்லது BOT_TOKEN அமைக்கப்படவில்லை!")
         return
 
-    # Render Web Service Keep-Alive
     t = threading.Thread(target=run_health_server, daemon=True)
     t.start()
 
