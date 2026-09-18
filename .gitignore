@@ -1,0 +1,14 @@
+.env
+*.session
+*.session-journal
+bot_data.db
+bot_data.db-*
+data/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.idea/
+.vscode/
+.DS_Store
