@@ -42,7 +42,7 @@ PORT = int(os.environ.get("PORT", "8080").strip())
 
 IST = pytz.timezone("Asia/Kolkata")
 
-# Main Pyrogram Bot
+# Master Pyrogram Bot Client
 bot = Client(
     "pro_saver_master_session",
     api_id=DEFAULT_API_ID,
@@ -54,6 +54,12 @@ bot = Client(
 db_lock = asyncio.Lock()
 login_states = {}
 task_queue = asyncio.Queue()
+
+# தம்ப்நெயில் ஃபைல் உள்ளதா என சரிபார்க்கும் எளிய சார்பு (Syntax பிழை வராது)
+def get_valid_thumb(path):
+    if path and os.path.exists(path):
+        return path
+    return None
 
 # ----------------- MULTI-LANGUAGE ENGINE -----------------
 LANG = {
@@ -119,7 +125,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-type", "text/plain; charset=utf-8")
         self.end_headers()
-        self.wfile.write(b"OK - Save Restricted Bot is 100% Active 24/7!")
+        self.wfile.write(b"OK - Save Restricted Bot is 100% Online 24/7!")
 
     def log_message(self, format, *args):
         return
@@ -127,7 +133,7 @@ class HealthHandler(BaseHTTPRequestHandler):
 def run_health_server():
     try:
         server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
-        print(f"[*] Threaded Ping Server running on port {PORT}")
+        print(f"[*] Threaded Ping Server active on port {PORT}")
         server.serve_forever()
     except Exception as e:
         print(f"[Health Server Warning] {e}")
@@ -272,7 +278,7 @@ async def start_handler(client: Client, msg: Message):
     ])
     await msg.reply_text(text, reply_markup=buttons)
 
-# ----------------- ALL LOGIN FLOWS (SESSION, PHONE, CUSTOM API) -----------------
+# ----------------- MULTI-LOGIN WORKFLOW -----------------
 @bot.on_message(filters.command("login") & filters.private)
 async def login_menu_cmd(_, msg: Message):
     buttons = InlineKeyboardMarkup([
@@ -436,7 +442,7 @@ async def delcaption_handler(_, msg: Message):
 async def id_handler(_, msg: Message):
     await msg.reply_text(f"🆔 Your Telegram ID: `{msg.from_user.id}`")
 
-# ----------------- THUMBNAIL ENGINE -----------------
+# ----------------- THUMBNAIL MANAGEMENT -----------------
 @bot.on_message(filters.command("setthumb") & filters.private)
 async def setthumb_handler(_, msg: Message):
     if not msg.reply_to_message or not msg.reply_to_message.photo:
@@ -451,4 +457,640 @@ async def setthumb_handler(_, msg: Message):
 @bot.on_message(filters.command("delthumb") & filters.private)
 async def delthumb_handler(_, msg: Message):
     user = await get_user(msg.from_user.id)
-    if user.get("doc_thumb") and
+    if user.get("doc_thumb") and os.path.exists(user["doc_thumb"]):
+        os.remove(user["doc_thumb"])
+    await update_user(msg.from_user.id, doc_thumb=None)
+    await msg.reply_text("🗑️ Document Thumbnail நீக்கப்பட்டது.")
+
+@bot.on_message(filters.command("mythumb") & filters.private)
+async def mythumb_handler(_, msg: Message):
+    user = await get_user(msg.from_user.id)
+    if user.get("doc_thumb") and os.path.exists(user["doc_thumb"]):
+        await msg.reply_photo(user["doc_thumb"], caption="உங்கள் Document Thumbnail")
+    else:
+        await msg.reply_text("❌ Document Thumbnail எதுவும் வைக்கப்படவில்லை.")
+
+@bot.on_message(filters.command("setvthumb") & filters.private)
+async def setvthumb_handler(_, msg: Message):
+    if not msg.reply_to_message or not msg.reply_to_message.photo:
+        await msg.reply_text("படத்திற்கு ரிப்ளை செய்து `/setvthumb` அனுப்பவும்.")
+        return
+    os.makedirs("thumbnails", exist_ok=True)
+    path = f"thumbnails/vthumb_{msg.from_user.id}.jpg"
+    await msg.reply_to_message.download(file_name=path)
+    await update_user(msg.from_user.id, vid_thumb=path)
+    await msg.reply_text("✅ Video Thumbnail சேமிக்கப்பட்டது!")
+
+@bot.on_message(filters.command("delvthumb") & filters.private)
+async def delvthumb_handler(_, msg: Message):
+    user = await get_user(msg.from_user.id)
+    if user.get("vid_thumb") and os.path.exists(user["vid_thumb"]):
+        os.remove(user["vid_thumb"])
+    await update_user(msg.from_user.id, vid_thumb=None)
+    await msg.reply_text("🗑️ Video Thumbnail நீக்கப்பட்டது.")
+
+@bot.on_message(filters.command("myvthumb") & filters.private)
+async def myvthumb_handler(_, msg: Message):
+    user = await get_user(msg.from_user.id)
+    if user.get("vid_thumb") and os.path.exists(user["vid_thumb"]):
+        await msg.reply_photo(user["vid_thumb"], caption="உங்கள் Video Thumbnail")
+    else:
+        await msg.reply_text("❌ Video Thumbnail எதுவும் வைக்கப்படவில்லை.")
+
+# ----------------- LOGIN / OTP / TEXT PROCESSOR -----------------
+@bot.on_message(filters.text & filters.private)
+async def text_handler(client: Client, msg: Message):
+    user_id = msg.from_user.id
+    text = msg.text.strip()
+    user = await get_user(user_id)
+    lang = user.get("lang", "ta")
+    t = LANG.get(lang, LANG["ta"])
+
+    if text == "/cancel":
+        login_states.pop(user_id, None)
+        await msg.reply_text("செயல்பாடு ரத்து செய்யப்பட்டது.")
+        return
+
+    # Direct String Session Login Check
+    state = login_states.get(user_id)
+    if state and state.get("step") == "SESSION_STRING":
+        try:
+            status_temp = await msg.reply_text("🔍 Validating Session String...")
+            test_client = Client(
+                f"test_auth_{user_id}",
+                api_id=DEFAULT_API_ID,
+                api_hash=DEFAULT_API_HASH,
+                session_string=text,
+                in_memory=True
+            )
+            await test_client.start()
+            me = await test_client.get_me()
+            await test_client.stop()
+            await update_user(user_id, session=text)
+            login_states.pop(user_id, None)
+            await status_temp.edit_text(f"✅ **Account Login Successfully!**\n\n👤 **User:** {me.first_name} (`{me.id}`)\nஇப்போது எந்தவொரு Restricted போஸ்ட் லிங்க்கையும் பதிவிறக்கம் செய்யலாம்! 🚀")
+            return
+        except Exception as e:
+            await msg.reply_text(f"❌ தவறான Session String: {str(e)}\nதயவுசெய்து சரியான Pyrogram String Session-ஐ அனுப்பவும்:")
+            return
+
+    # Custom API ID & Hash Step Handler
+    if state:
+        step = state.get("step")
+
+        if step == "CUSTOM_API_ID":
+            if text.isdigit():
+                login_states[user_id] = {"step": "CUSTOM_API_HASH", "api_id": int(text)}
+                await msg.reply_text("இப்போது உங்கள் **API HASH**-ஐ அனுப்பவும்:")
+            else:
+                await msg.reply_text("❌ தயவுசெய்து சரியான எண்களைக் கொண்ட API ID-ஐ அனுப்பவும்:")
+            return
+
+        if step == "CUSTOM_API_HASH":
+            login_states[user_id]["api_hash"] = text
+            login_states[user_id]["step"] = "PHONE"
+            await msg.reply_text(
+                "📲 **உங்கள் மொபைல் எண்ணை நாட்டின் குறியீட்டுடன் (+91...) அனுப்பவும்:**\n"
+                "உதாரணம்: `+919876543210`"
+            )
+            return
+
+        if step == "PHONE":
+            phone = text.replace(" ", "").replace("-", "")
+            if not phone.startswith("+") or len(phone) < 10:
+                await msg.reply_text("❌ சரியான மொபைல் எண்ணை நாட்டின் குறியீட்டுடன் (+91...) அனுப்பவும்:")
+                return
+
+            api_id = state.get("api_id", DEFAULT_API_ID)
+            api_hash = state.get("api_hash", DEFAULT_API_HASH)
+            u_client = Client(f"login_sess_{user_id}", api_id=api_id, api_hash=api_hash, in_memory=True)
+            await u_client.connect()
+            try:
+                status_temp = await msg.reply_text("📩 Sending OTP to your Telegram account...")
+                code = await u_client.send_code(phone)
+                login_states[user_id].update({
+                    "step": "OTP",
+                    "client": u_client,
+                    "phone": phone,
+                    "hash": code.phone_code_hash
+                })
+                await status_temp.edit_text(
+                    "📩 **உங்கள் அதிகாரப்பூர்வ Telegram ஆப்பில் OTP வந்துள்ளது.**\n\n"
+                    "பாதுகாப்பிற்காக OTP எண்களுக்கு இடையே **இடைவெளி விட்டு** அனுப்பவும்:\n\n"
+                    "👉 உதாரணம்: `1 2 3 4 5`\n\n"
+                    "ரத்து செய்ய: `/cancel`"
+                )
+            except Exception as e:
+                login_states.pop(user_id, None)
+                if u_client.is_connected:
+                    await u_client.disconnect()
+                await msg.reply_text(f"❌ Error sending OTP: {str(e)}\n\nமீண்டும் `/login` செய்து முயற்சிக்கவும்.")
+            return
+
+        if step == "OTP":
+            otp = text.replace(" ", "").replace("-", "")
+            u_client = state.get("client")
+            if not u_client or not u_client.is_connected:
+                await msg.reply_text("⚠️ அமர்வு காலாவதியானது. மீண்டும் `/login` செய்யவும்.")
+                login_states.pop(user_id, None)
+                return
+
+            try:
+                await u_client.sign_in(state["phone"], state["hash"], otp)
+                s_str = await u_client.export_session_string()
+                await u_client.disconnect()
+                await update_user(user_id, session=s_str, custom_api_id=state.get("api_id"), custom_api_hash=state.get("api_hash"))
+                login_states.pop(user_id, None)
+                await msg.reply_text(
+                    "✅ **Account Login Successfully!** 🎉\n\n"
+                    "உங்கள் கணக்கு வெற்றிகரமாக இணைக்கப்பட்டது!\n"
+                    "இப்போது எந்தவொரு Restricted போஸ்ட் லிங்க்கையும் இங்கு அனுப்பலாம். 🚀"
+                )
+            except SessionPasswordNeeded:
+                login_states[user_id]["step"] = "2FA"
+                await msg.reply_text("🔐 உங்கள் கணக்கில் 2-Step Verification உள்ளது. பாஸ்வேர்டை அனுப்பவும்:")
+            except (PhoneCodeInvalid, PhoneCodeExpired):
+                await msg.reply_text("❌ தவறான/காலாவதியான OTP. தயவுசெய்து எண்களுக்கு இடையே இடைவெளி விட்டு அனுப்பவும்: `1 2 3 4 5`")
+            except Exception as e:
+                login_states.pop(user_id, None)
+                if u_client.is_connected:
+                    await u_client.disconnect()
+                await msg.reply_text(f"❌ Login Error: {str(e)}")
+            return
+
+        if step == "2FA":
+            u_client = state.get("client")
+            try:
+                await u_client.check_password(password=text)
+                s_str = await u_client.export_session_string()
+                await u_client.disconnect()
+                await update_user(user_id, session=s_str)
+                login_states.pop(user_id, None)
+                await msg.reply_text("✅ **Account Login Successfully with 2FA!** 🎉")
+            except PasswordHashInvalid:
+                await msg.reply_text("❌ தவறான 2FA பாஸ்வேர்ட். மீண்டும் பாஸ்வேர்டை அனுப்பவும்:")
+            except Exception as e:
+                login_states.pop(user_id, None)
+                if u_client.is_connected:
+                    await u_client.disconnect()
+                await msg.reply_text(f"❌ 2FA Error: {str(e)}")
+            return
+
+    # Direct Link Detection
+    if "t.me/" in text:
+        if not user.get("session"):
+            btn = InlineKeyboardMarkup([
+                [InlineKeyboardButton("⚡ String Session", callback_data="login_session"), InlineKeyboardButton("📲 Phone + OTP", callback_data="login_otp")]
+            ])
+            await msg.reply_text(t["not_connected"], reply_markup=btn)
+            return
+        await task_queue.put((execute_download, (client, msg, user_id), {}))
+        await msg.reply_text("⏳ பதிவிறக்கப் பணி வரிசையில் சேர்க்கப்பட்டது...")
+
+# ----------------- REFINED HIGH-SPEED DOWNLOAD ENGINE -----------------
+async def execute_download(bot_client: Client, msg: Message, user_id: int):
+    user = await get_user(user_id)
+    lang = user.get("lang", "ta")
+    t = LANG.get(lang, LANG["ta"])
+
+    if not user.get("session"):
+        await bot_client.send_message(user_id, t["not_connected"])
+        return
+
+    # Match public or private channel post links
+    match = re.search(r"t\.me/(?:c/)?([a-zA-Z0-9_]+)/(\d+)(?:-(\d+))?", msg.text.strip())
+    if not match:
+        await bot_client.send_message(user_id, "❌ தவறான டெலிகிராம் லிங்க்.")
+        return
+
+    chat_raw = match.group(1)
+    start_id = int(match.group(2))
+    end_id = int(match.group(3)) if match.group(3) else start_id
+
+    # Strict chat ID resolution
+    if chat_raw.isdigit():
+        chat_id = int(f"-100{chat_raw}")
+    else:
+        chat_id = chat_raw
+
+    filter_type = user.get("file_filter", "all")
+    status_msg = await bot_client.send_message(user_id, "📥 டவுன்லோட் தொடங்குகிறது...")
+
+    api_id = user.get("custom_api_id") or DEFAULT_API_ID
+    api_hash = user.get("custom_api_hash") or DEFAULT_API_HASH
+
+    u_client = Client(f"ub_exec_{user_id}", api_id=api_id, api_hash=api_hash, session_string=user["session"], in_memory=True)
+    await u_client.connect()
+
+    # Pre-cache channel access
+    try:
+        await u_client.get_chat(chat_id)
+    except Exception:
+        pass
+
+    downloaded_count = 0
+    try:
+        for cur_id in range(start_id, end_id + 1):
+            if not await deduct_usage(user_id):
+                await bot_client.send_message(user_id, t["limit_reached"])
+                break
+
+            try:
+                target = await u_client.get_messages(chat_id, cur_id)
+                if not target or target.empty:
+                    continue
+
+                caption = user.get("custom_caption") or target.caption or ""
+                thumb_doc = get_valid_thumb(user.get("doc_thumb"))
+                thumb_vid = get_valid_thumb(user.get("vid_thumb"))
+
+                # Plain Text Message Forwarding
+                if not target.media and target.text:
+                    if filter_type in ["all", "doc"]:
+                        await bot_client.send_message(user_id, target.text)
+                        downloaded_count += 1
+                    continue
+
+                # Filter validation
+                if filter_type == "video" and not target.video:
+                    continue
+                elif filter_type == "doc" and not target.document:
+                    continue
+                elif filter_type == "audio" and not (target.audio or target.voice):
+                    continue
+                elif filter_type == "photo" and not target.photo:
+                    continue
+
+                await status_msg.edit_text(t["downloading"].format(id=cur_id))
+
+                # Download File locally
+                f_path = await target.download()
+
+                await status_msg.edit_text(t["uploading"].format(id=cur_id))
+
+                # Upload to user with original quality
+                if target.document:
+                    await bot_client.send_document(user_id, f_path, caption=caption, thumb=thumb_doc)
+                elif target.video:
+                    await bot_client.send_video(user_id, f_path, caption=caption, thumb=thumb_vid, supports_streaming=True)
+                elif target.audio:
+                    await bot_client.send_audio(user_id, f_path, caption=caption, thumb=thumb_doc)
+                elif target.voice:
+                    await bot_client.send_voice(user_id, f_path, caption=caption)
+                elif target.photo:
+                    await bot_client.send_photo(user_id, f_path, caption=caption)
+
+                if os.path.exists(f_path):
+                    os.remove(f_path)
+
+                downloaded_count += 1
+                await asyncio.sleep(1.5)
+
+            except FloodWait as fw:
+                await asyncio.sleep(fw.value)
+            except Exception as item_err:
+                print(f"[Fetch Error ID {cur_id}]: {item_err}")
+                continue
+
+        if downloaded_count > 0:
+            await status_msg.edit_text(t["success"])
+        else:
+            await status_msg.edit_text("⚠️ இந்த ஐடியில் தரவிறக்க எந்த மீடியாவும் கிடைக்கவில்லை.")
+    except Exception as e:
+        await status_msg.edit_text(t["error"].format(err=str(e)))
+    finally:
+        if u_client.is_connected:
+            await u_client.disconnect()
+
+# ----------------- FORWARDED MESSAGES HANDLER -----------------
+@bot.on_message(filters.forwarded & filters.private)
+async def forwarded_handler(client: Client, msg: Message):
+    if not msg.media and not msg.text:
+        await msg.reply_text("❌ இந்த செய்தியில் தரவிறக்க எதுவும் இல்லை.")
+        return
+    await task_queue.put((execute_forward_download, (client, msg, msg.from_user.id), {}))
+    await msg.reply_text("⏳ பார்வர்ட் மீடியா வரிசையில் சேர்க்கப்பட்டது...")
+
+async def execute_forward_download(bot_client: Client, msg: Message, user_id: int):
+    user = await get_user(user_id)
+    lang = user.get("lang", "ta")
+    t = LANG.get(lang, LANG["ta"])
+
+    if not user.get("session"):
+        await bot_client.send_message(user_id, t["not_connected"])
+        return
+
+    if not await deduct_usage(user_id):
+        await bot_client.send_message(user_id, t["limit_reached"])
+        return
+
+    if not msg.media and msg.text:
+        await bot_client.send_message(user_id, msg.text)
+        return
+
+    status_msg = await bot_client.send_message(user_id, "📥 பதிவிறக்கப்படுகிறது...")
+    try:
+        file_path = await msg.download()
+        await status_msg.edit_text("📤 பதிவேற்றப்படுகிறது...")
+
+        caption = user.get("custom_caption") or msg.caption or ""
+        thumb_doc = get_valid_thumb(user.get("doc_thumb"))
+        thumb_vid = get_valid_thumb(user.get("vid_thumb"))
+
+        if msg.document:
+            await bot_client.send_document(user_id, file_path, caption=caption, thumb=thumb_doc)
+        elif msg.video:
+            await bot_client.send_video(user_id, file_path, caption=caption, thumb=thumb_vid, supports_streaming=True)
+        elif msg.audio:
+            await bot_client.send_audio(user_id, file_path, caption=caption, thumb=thumb_doc)
+        elif msg.voice:
+            await bot_client.send_voice(user_id, file_path, caption=caption)
+        elif msg.photo:
+            await bot_client.send_photo(user_id, file_path, caption=caption)
+
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        await status_msg.delete()
+    except Exception as e:
+        await status_msg.edit_text(t["error"].format(err=str(e)))
+
+# ----------------- BATCH, CLONE & EXTRACT HANDLERS -----------------
+@bot.on_message(filters.command("batch") & filters.private)
+async def batch_handler(client: Client, msg: Message):
+    user = await get_user(msg.from_user.id)
+    if user["plan"] == "Free" and msg.from_user.id != ADMIN_ID:
+        await msg.reply_text("🔒 Batch வசதி Standard மற்றும் அதற்கு மேற்பட்ட பிளான்களில் மட்டுமே கிடைக்கும்.")
+        return
+    await msg.reply_text("📦 Batch Mode: `https://t.me/c/1234567890/10-30` என்ற வடிவில் அனுப்பவும்.")
+
+@bot.on_message(filters.command("clone") & filters.private)
+async def clone_handler(client: Client, msg: Message):
+    user = await get_user(msg.from_user.id)
+    if user["plan"] != "Ultimate" and msg.from_user.id != ADMIN_ID:
+        await msg.reply_text("⭐ சேனல் குளோனிங் வசதி Ultimate Plan-ல் மட்டுமே கிடைக்கும்.")
+        return
+    if not user.get("session"):
+        await msg.reply_text("⚠️ முதலில் `/login` செய்யவும்.")
+        return
+    args = msg.text.split()
+    if len(args) < 3:
+        await msg.reply_text("பயன்பாடு: `/clone <source_id> <target_id>`")
+        return
+    await task_queue.put((execute_clone, (client, msg, user, args[1], args[2]), {}))
+    await msg.reply_text("🚀 சேனல் குளோனிங் வரிசையில் சேர்க்கப்பட்டது...")
+
+async def execute_clone(bot_client: Client, msg: Message, user: dict, src_raw, dest_raw):
+    user_id = user["user_id"]
+    src = int(src_raw) if src_raw.lstrip("-").isdigit() else src_raw
+    dest = int(dest_raw) if dest_raw.lstrip("-").isdigit() else dest_raw
+
+    status_msg = await bot_client.send_message(user_id, "🚀 குளோனிங் தொடங்குகிறது...")
+    u_client = Client(f"ub_clone_{user_id}", session_string=user["session"], in_memory=True)
+    await u_client.connect()
+    count = 0
+    try:
+        async for post in u_client.get_chat_history(src):
+            if not await deduct_usage(user_id):
+                await bot_client.send_message(user_id, "⛔ வரம்பு முடிந்தது.")
+                break
+            try:
+                cap = user.get("custom_caption") or post.caption or ""
+                thumb_doc = get_valid_thumb(user.get("doc_thumb"))
+                thumb_vid = get_valid_thumb(user.get("vid_thumb"))
+
+                if post.media:
+                    f = await post.download()
+                    if post.document:
+                        await u_client.send_document(dest, f, caption=cap, thumb=thumb_doc)
+                    elif post.video:
+                        await u_client.send_video(dest, f, caption=cap, thumb=thumb_vid)
+                    elif post.audio:
+                        await u_client.send_audio(dest, f, caption=cap, thumb=thumb_doc)
+                    elif post.voice:
+                        await u_client.send_voice(dest, f, caption=cap)
+                    elif post.photo:
+                        await u_client.send_photo(dest, f, caption=cap)
+
+                    if os.path.exists(f):
+                        os.remove(f)
+                elif post.text:
+                    await u_client.send_message(dest, post.text)
+
+                count += 1
+                if count % 5 == 0:
+                    await status_msg.edit_text(f"🔄 Cloned {count} items...")
+                await asyncio.sleep(2)
+            except FloodWait as fw:
+                await asyncio.sleep(fw.value)
+            except Exception:
+                continue
+
+        await status_msg.edit_text(f"✅ குளோனிங் முடிந்தது. மொத்தம் மாற்றப்பட்ட பதிவுகள்: {count}")
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Error: {str(e)}")
+    finally:
+        if u_client.is_connected:
+            await u_client.disconnect()
+
+@bot.on_message(filters.command("extract") & filters.private)
+async def extract_handler(client: Client, msg: Message):
+    user = await get_user(msg.from_user.id)
+    if not user.get("session"):
+        await msg.reply_text("⚠️ முதலில் `/login` செய்யவும்.")
+        return
+    args = msg.text.split()
+    if len(args) < 2:
+        await msg.reply_text("பயன்பாடு: `/extract <channel_id>`")
+        return
+    target = int(args[1]) if args[1].lstrip("-").isdigit() else args[1]
+    await task_queue.put((execute_extract, (client, msg, user, target), {}))
+    await msg.reply_text("📑 பிளேலிஸ்ட் தொகுக்கப்பட்டு வருகிறது...")
+
+async def execute_extract(bot_client: Client, msg: Message, user: dict, target):
+    user_id = user["user_id"]
+    status_msg = await bot_client.send_message(user_id, "📑 தொகுக்கப்படுகிறது...")
+    u_client = Client(f"ub_ext_{user_id}", session_string=user["session"], in_memory=True)
+    await u_client.connect()
+    file_name = f"playlist_{user_id}.txt"
+    count = 0
+    try:
+        with open(file_name, "w", encoding="utf-8") as f:
+            f.write(f"--- Playlist for {target} ---\n\n")
+            async for post in u_client.get_chat_history(target):
+                count += 1
+                media_type = "Document" if post.document else "Video" if post.video else "Audio" if post.photo else "Media"
+                f.write(f"{count}. {media_type} | ID: {post.id} | https://t.me/c/{str(target).replace('-100', '')}/{post.id}\n")
+        await bot_client.send_document(user_id, file_name, caption=f"✅ {count} பதிவுகள் தொகுக்கப்பட்டன.")
+        if os.path.exists(file_name):
+            os.remove(file_name)
+        await status_msg.delete()
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Error: {str(e)}")
+    finally:
+        if u_client.is_connected:
+            await u_client.disconnect()
+
+# ----------------- ADMIN COMMANDS (/ap, /rp, /ps, /stats, /broadcast) -----------------
+@bot.on_message(filters.command("ap") & filters.user(ADMIN_ID))
+async def admin_ap(_, msg: Message):
+    args = msg.text.split()
+    if len(args) < 3:
+        await msg.reply_text("Usage: `/ap <user_id> <Standard|Premium|Ultimate>`")
+        return
+    t_uid = int(args[1])
+    t_plan = args[2].capitalize()
+    limits = {"Standard": 50, "Premium": 100, "Ultimate": 9999999}
+    if t_plan not in limits:
+        await msg.reply_text("தவறான திட்டம்! (Standard, Premium, Ultimate).")
+        return
+    await update_user(t_uid, plan=t_plan, daily_limit=limits[t_plan])
+    await msg.reply_text(f"✅ User `{t_uid}` திட்டம் `{t_plan}` ஆக மாற்றப்பட்டது.")
+
+@bot.on_message(filters.command("rp") & filters.user(ADMIN_ID))
+async def admin_rp(_, msg: Message):
+    args = msg.text.split()
+    if len(args) < 2:
+        await msg.reply_text("Usage: `/rp <user_id>`")
+        return
+    t_uid = int(args[1])
+    await update_user(t_uid, plan="Free", daily_limit=2, daily_used=0)
+    await msg.reply_text(f"🔄 User `{t_uid}` இலவச நிலைக்கு ரீசெட் செய்யப்பட்டார்.")
+
+@bot.on_message(filters.command("ps") & filters.user(ADMIN_ID))
+async def admin_ps(_, msg: Message):
+    args = msg.text.split()
+    if len(args) < 2:
+        await msg.reply_text("Usage: `/ps <user_id>`")
+        return
+    t_uid = int(args[1])
+    u = await get_user(t_uid)
+    await msg.reply_text(f"📋 User `{t_uid}`:\nPlan: {u['plan']}\nLimit: {u['daily_limit']}\nUsed: {u['daily_used']}\nBonus: {u['bonus_credits']}")
+
+@bot.on_message(filters.command("stats") & filters.user(ADMIN_ID))
+async def admin_stats(_, msg: Message):
+    async with db_lock:
+        async with aiosqlite.connect("bot_data.db") as db:
+            c1 = await db.execute("SELECT COUNT(*) FROM users")
+            total = (await c1.fetchone())[0]
+            c2 = await db.execute("SELECT COUNT(*) FROM users WHERE plan != 'Free'")
+            prem = (await c2.fetchone())[0]
+    await msg.reply_text(f"📊 **Statistics:**\nTotal Users: `{total}`\nVIP Members: `{prem}`\nQueue Tasks: `{task_queue.qsize()}`")
+
+@bot.on_message(filters.command("broadcast") & filters.user(ADMIN_ID))
+async def admin_broadcast(_, msg: Message):
+    if not msg.reply_to_message:
+        await msg.reply_text("மெசேஜுக்கு ரிப்ளை செய்து `/broadcast` அனுப்பவும்.")
+        return
+    async with db_lock:
+        async with aiosqlite.connect("bot_data.db") as db:
+            c = await db.execute("SELECT user_id FROM users")
+            rows = await c.fetchall()
+    sent = 0
+    for (uid,) in rows:
+        try:
+            await msg.reply_to_message.copy(uid)
+            sent += 1
+            await asyncio.sleep(0.05)
+        except Exception:
+            pass
+    await msg.reply_text(f"✅ பிராட்காஸ்ட் நிறைவடைந்தது: {sent} பயனர்கள்.")
+
+# ----------------- CALLBACK BUTTONS ROUTER -----------------
+@bot.on_callback_query()
+async def cb_handler(client: Client, q: CallbackQuery):
+    data = q.data
+    user_id = q.from_user.id
+    if data == "btn_login":
+        await login_menu_cmd(client, q.message)
+    elif data == "login_session":
+        login_states[user_id] = {"step": "SESSION_STRING"}
+        await q.message.reply_text("⚡ உங்கள் **Pyrogram String Session**-ஐ இங்கு பேஸ்ட் செய்து அனுப்பவும்:\n\nரத்து செய்ய: `/cancel`")
+    elif data == "login_otp":
+        await skip_command_handler(client, q.message)
+    elif data == "login_custom_api":
+        login_states[user_id] = {"step": "CUSTOM_API_ID"}
+        await q.message.reply_text("🔑 உங்கள் சொந்த **Telegram API ID**-ஐ அனுப்பவும்:\n\nரத்து செய்ய: `/cancel`")
+    elif data == "btn_plans":
+        await plans_handler(client, q.message)
+    elif data == "btn_myplan":
+        await myplan_handler(client, q.message)
+    elif data == "btn_trial":
+        await trial_handler(client, q.message)
+    elif data == "btn_bonus":
+        await bonus_handler(client, q.message)
+    elif data == "btn_ref":
+        await referral_handler(client, q.message)
+    elif data == "btn_lang":
+        await lang_cmd(client, q.message)
+    elif data.startswith("set_"):
+        chosen_lang = data.replace("set_", "")
+        await update_user(user_id, lang=chosen_lang)
+        await q.answer("Language Updated!")
+        await start_handler(client, q.message)
+    elif data == "btn_buy":
+        await q.message.reply_text("💳 **Payment (UPI):**\n\nUPI ID: `your-upi@okaxis`\nபணம் செலுத்தியதும் ஸ்கிரீன்ஷாட்டை அட்மினுக்கு அனுப்பவும்.")
+    await q.answer()
+
+# ----------------- MAIN BOOTSTRAP -----------------
+async def start_services():
+    await init_db()
+    asyncio.create_task(queue_worker())
+
+    scheduler = AsyncIOScheduler(timezone=IST)
+    scheduler.add_job(daily_reset_job, "cron", hour=0, minute=0)
+    scheduler.start()
+
+    await bot.start()
+    print("[*] Pyrogram Client Connected Successfully!")
+
+    try:
+        commands = [
+            BotCommand("start", "Home"),
+            BotCommand("login", "Connect Account (Session/OTP/API)"),
+            BotCommand("skip", "Quick OTP Login"),
+            BotCommand("logout", "Disconnect Account"),
+            BotCommand("batch", "Batch Fetch"),
+            BotCommand("clone", "Clone Entire Channel"),
+            BotCommand("extract", "Extract Playlist Index"),
+            BotCommand("filter", "Filter Media"),
+            BotCommand("lang", "Change Language"),
+            BotCommand("setcaption", "Custom Caption & Watermark"),
+            BotCommand("delcaption", "Delete Caption"),
+            BotCommand("referral", "Refer & Earn"),
+            BotCommand("bonus", "Daily Streak Bonus"),
+            BotCommand("trial", "Free Trial"),
+            BotCommand("myplan", "My Plan & Limits"),
+            BotCommand("plans", "View VIP Plans"),
+            BotCommand("id", "Get Telegram ID"),
+            BotCommand("setthumb", "Set Document Thumbnail"),
+            BotCommand("delthumb", "Delete Document Thumbnail"),
+            BotCommand("mythumb", "View Document Thumbnail"),
+            BotCommand("setvthumb", "Set Video Thumbnail"),
+            BotCommand("delvthumb", "Delete Video Thumbnail"),
+            BotCommand("myvthumb", "View Video Thumbnail")
+        ]
+        await bot.set_bot_commands(commands)
+        print("[*] Commands menu registered successfully!")
+    except Exception as e:
+        print(f"[Warning] Menu register: {e}")
+
+    print("========================================")
+    print("  [SUCCESS] Bot is online and polling!  ")
+    print("========================================")
+
+    await idle()
+    await bot.stop()
+
+def main():
+    if not DEFAULT_API_ID or not DEFAULT_API_HASH or not BOT_TOKEN:
+        print("[FATAL ERROR] API_ID, API_HASH, அல்லது BOT_TOKEN அமைக்கப்படவில்லை! Render Environment Variables-ஐ சரிபார்க்கவும்.")
+        return
+
+    t = threading.Thread(target=run_health_server, daemon=True)
+    t.start()
+
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(start_services())
+
+if __name__ == "__main__":
+    main()
