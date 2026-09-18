@@ -40,9 +40,13 @@ ADMIN_ID = int(ADMIN_ID_RAW) if ADMIN_ID_RAW.isdigit() else 0
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "pro_saver_bot").strip()
 PORT = int(os.environ.get("PORT", "8080").strip())
 
+# உங்கள் உண்மையான UPI ID மற்றும் பெயர்
+PAYMENT_UPI_ID = "sathiyamoorthy8020-2@okhdfcbank"
+PAYMENT_NAME = "Sathiya Moorthy (Indian Overseas Bank)"
+
 IST = pytz.timezone("Asia/Kolkata")
 
-# Master Pyrogram Bot Client
+# Master Bot Client
 bot = Client(
     "pro_saver_master_session",
     api_id=DEFAULT_API_ID,
@@ -55,7 +59,6 @@ db_lock = asyncio.Lock()
 login_states = {}
 task_queue = asyncio.Queue()
 
-# தம்ப்நெயில் ஃபைல் உள்ளதா என சரிபார்க்கும் எளிய சார்பு (Syntax பிழை வராது)
 def get_valid_thumb(path):
     if path and os.path.exists(path):
         return path
@@ -68,7 +71,7 @@ LANG = {
         "btn_session": "⚡ String Session Login",
         "btn_otp": "📲 Phone Number + OTP",
         "btn_custom_api": "🔑 Custom API ID/Hash",
-        "btn_plans": "📦 VIP திட்டங்கள்",
+        "btn_plans": "📦 VIP திட்டங்கள் & கட்டணம்",
         "btn_myplan": "📊 எனது திட்டம்",
         "btn_trial": "🎁 இலவச ட்ரையல்",
         "btn_bonus": "🎁 தினசரி போனஸ்",
@@ -86,7 +89,7 @@ LANG = {
         "btn_session": "⚡ String Session Login",
         "btn_otp": "📲 Phone Number + OTP",
         "btn_custom_api": "🔑 Custom API ID/Hash",
-        "btn_plans": "📦 VIP Plans",
+        "btn_plans": "📦 VIP Plans & Pricing",
         "btn_myplan": "📊 My Plan",
         "btn_trial": "🎁 Free Trial",
         "btn_bonus": "🎁 Daily Bonus",
@@ -125,7 +128,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-type", "text/plain; charset=utf-8")
         self.end_headers()
-        self.wfile.write(b"OK - Save Restricted Bot is 100% Online 24/7!")
+        self.wfile.write(b"OK - Save Restricted Bot is 100% Active 24/7!")
 
     def log_message(self, format, *args):
         return
@@ -278,7 +281,7 @@ async def start_handler(client: Client, msg: Message):
     ])
     await msg.reply_text(text, reply_markup=buttons)
 
-# ----------------- MULTI-LOGIN WORKFLOW -----------------
+# ----------------- ALL LOGIN FLOWS -----------------
 @bot.on_message(filters.command("login") & filters.private)
 async def login_menu_cmd(_, msg: Message):
     buttons = InlineKeyboardMarkup([
@@ -346,17 +349,30 @@ async def myplan_handler(_, msg: Message):
     ])
     await msg.reply_text(text, reply_markup=buttons)
 
+# ----------------- PLANS & PRICING (UPDATED WITH UPI) -----------------
 @bot.on_message(filters.command("plans") & filters.private)
 async def plans_handler(_, msg: Message):
     text = (
-        "💎 **PREMIUM PLANS (100% UNLIMITED ACCESS)** 💎\n\n"
-        "🥈 **Standard:** 50 files/day (₹50/wk | ₹180/mo)\n"
-        "🥇 **Premium:** 100 files/day (₹80/wk | ₹280/mo)\n"
-        "🔷 **Ultimate:** ♾️ Unlimited Downloads + Channel Cloner (₹130/wk | ₹450/mo)"
+        "💎 **SAVE RESTRICTED BOT PREMIUM PLANS** 💎\n\n"
+        "🥈 **Standard Plan:**\n"
+        "• 50 Downloads / Day\n"
+        "• Rate: **₹50 / வாரம் | ₹180 / மாதம்**\n\n"
+        "🥇 **Premium Plan:**\n"
+        "• 100 Downloads / Day\n"
+        "• Rate: **₹80 / வாரம் | ₹280 / மாதம்**\n\n"
+        "🔷 **Ultimate Plan (Best Value):**\n"
+        "• ♾️ Unlimited Downloads & All File Access\n"
+        "• 🚀 Complete Channel / Group Cloner Access\n"
+        "• Rate: **₹130 / வாரம் | ₹450 / மாதம்**\n\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "💳 **கட்டணம் செலுத்தும் முறை (Payment Details):**\n"
+        f"• **UPI ID:** `{PAYMENT_UPI_ID}`\n"
+        f"• **பெயர்:** `{PAYMENT_NAME}`\n\n"
+        "📌 Google Pay, PhonePe, Paytm அல்லது எந்த UPI ஆப் மூலமும் பணம் செலுத்திவிட்டு, ஸ்கிரீன்ஷாட்டை நிர்வாகிக்கு (@admin) அனுப்பவும். 2 நிமிடத்தில் செயல்படுத்தப்படும்!"
     )
     buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("💳 Buy Plan (UPI)", callback_data="btn_buy")],
-        [InlineKeyboardButton("💬 Admin Contact", url=f"tg://user?id={ADMIN_ID}")]
+        [InlineKeyboardButton("💳 Buy Plan / Pay Now", callback_data="btn_buy")],
+        [InlineKeyboardButton("💬 Contact Admin", url=f"tg://user?id={ADMIN_ID}")]
     ])
     await msg.reply_text(text, reply_markup=buttons)
 
@@ -509,6 +525,10 @@ async def text_handler(client: Client, msg: Message):
     if text == "/cancel":
         login_states.pop(user_id, None)
         await msg.reply_text("செயல்பாடு ரத்து செய்யப்பட்டது.")
+        return
+
+    if text.lower() == "/skip":
+        await skip_command_handler(client, msg)
         return
 
     # Direct String Session Login Check
@@ -667,7 +687,7 @@ async def execute_download(bot_client: Client, msg: Message, user_id: int):
     start_id = int(match.group(2))
     end_id = int(match.group(3)) if match.group(3) else start_id
 
-    # Strict chat ID resolution
+    # Format properly for Telegram API
     if chat_raw.isdigit():
         chat_id = int(f"-100{chat_raw}")
     else:
@@ -682,11 +702,16 @@ async def execute_download(bot_client: Client, msg: Message, user_id: int):
     u_client = Client(f"ub_exec_{user_id}", api_id=api_id, api_hash=api_hash, session_string=user["session"], in_memory=True)
     await u_client.connect()
 
-    # Pre-cache channel access
+    # Pre-cache chat dialogs
     try:
         await u_client.get_chat(chat_id)
     except Exception:
-        pass
+        try:
+            async for _ in u_client.get_dialogs(limit=30):
+                pass
+            await u_client.get_chat(chat_id)
+        except Exception:
+            pass
 
     downloaded_count = 0
     try:
@@ -726,6 +751,9 @@ async def execute_download(bot_client: Client, msg: Message, user_id: int):
                 # Download File locally
                 f_path = await target.download()
 
+                if not f_path or not os.path.exists(f_path):
+                    continue
+
                 await status_msg.edit_text(t["uploading"].format(id=cur_id))
 
                 # Upload to user with original quality
@@ -755,7 +783,10 @@ async def execute_download(bot_client: Client, msg: Message, user_id: int):
         if downloaded_count > 0:
             await status_msg.edit_text(t["success"])
         else:
-            await status_msg.edit_text("⚠️ இந்த ஐடியில் தரவிறக்க எந்த மீடியாவும் கிடைக்கவில்லை.")
+            await status_msg.edit_text(
+                "⚠️ **இந்த ஐடியில் தரவிறக்க எந்த மீடியாவும் கிடைக்கவில்லை.**\n\n"
+                "💡 **காரணம்:** உங்கள் கணக்கு (`User Account`) இந்த Private சேனலில் இணைந்திருக்க வேண்டும் (Joined/Member). இணைந்திருப்பதை உறுதிசெய்து மீண்டும் அனுப்பவும்."
+            )
     except Exception as e:
         await status_msg.edit_text(t["error"].format(err=str(e)))
     finally:
@@ -834,7 +865,12 @@ async def clone_handler(client: Client, msg: Message):
         return
     args = msg.text.split()
     if len(args) < 3:
-        await msg.reply_text("பயன்பாடு: `/clone <source_id> <target_id>`")
+        await msg.reply_text(
+            "📋 **பயன்பாடு (Usage):**\n"
+            "`/clone <source_channel_id> <target_channel_id>`\n\n"
+            "👉 **உதாரணம்:**\n"
+            "`/clone -1003297641611 -1004430912409`"
+        )
         return
     await task_queue.put((execute_clone, (client, msg, user, args[1], args[2]), {}))
     await msg.reply_text("🚀 சேனல் குளோனிங் வரிசையில் சேர்க்கப்பட்டது...")
@@ -847,6 +883,16 @@ async def execute_clone(bot_client: Client, msg: Message, user: dict, src_raw, d
     status_msg = await bot_client.send_message(user_id, "🚀 குளோனிங் தொடங்குகிறது...")
     u_client = Client(f"ub_clone_{user_id}", session_string=user["session"], in_memory=True)
     await u_client.connect()
+
+    try:
+        await u_client.get_chat(src)
+    except Exception:
+        try:
+            async for _ in u_client.get_dialogs(limit=30):
+                pass
+        except Exception:
+            pass
+
     count = 0
     try:
         async for post in u_client.get_chat_history(src):
@@ -860,18 +906,18 @@ async def execute_clone(bot_client: Client, msg: Message, user: dict, src_raw, d
 
                 if post.media:
                     f = await post.download()
-                    if post.document:
-                        await u_client.send_document(dest, f, caption=cap, thumb=thumb_doc)
-                    elif post.video:
-                        await u_client.send_video(dest, f, caption=cap, thumb=thumb_vid)
-                    elif post.audio:
-                        await u_client.send_audio(dest, f, caption=cap, thumb=thumb_doc)
-                    elif post.voice:
-                        await u_client.send_voice(dest, f, caption=cap)
-                    elif post.photo:
-                        await u_client.send_photo(dest, f, caption=cap)
+                    if f and os.path.exists(f):
+                        if post.document:
+                            await u_client.send_document(dest, f, caption=cap, thumb=thumb_doc)
+                        elif post.video:
+                            await u_client.send_video(dest, f, caption=cap, thumb=thumb_vid)
+                        elif post.audio:
+                            await u_client.send_audio(dest, f, caption=cap, thumb=thumb_doc)
+                        elif post.voice:
+                            await u_client.send_voice(dest, f, caption=cap)
+                        elif post.photo:
+                            await u_client.send_photo(dest, f, caption=cap)
 
-                    if os.path.exists(f):
                         os.remove(f)
                 elif post.text:
                     await u_client.send_message(dest, post.text)
@@ -882,7 +928,8 @@ async def execute_clone(bot_client: Client, msg: Message, user: dict, src_raw, d
                 await asyncio.sleep(2)
             except FloodWait as fw:
                 await asyncio.sleep(fw.value)
-            except Exception:
+            except Exception as clone_err:
+                print(f"[Clone Item Error]: {clone_err}")
                 continue
 
         await status_msg.edit_text(f"✅ குளோனிங் முடிந்தது. மொத்தம் மாற்றப்பட்ட பதிவுகள்: {count}")
@@ -1028,7 +1075,13 @@ async def cb_handler(client: Client, q: CallbackQuery):
         await q.answer("Language Updated!")
         await start_handler(client, q.message)
     elif data == "btn_buy":
-        await q.message.reply_text("💳 **Payment (UPI):**\n\nUPI ID: `your-upi@okaxis`\nபணம் செலுத்தியதும் ஸ்கிரீன்ஷாட்டை அட்மினுக்கு அனுப்பவும்.")
+        text = (
+            "💳 **PAYMENT DETAILS (UPI):**\n\n"
+            f"• **UPI ID:** `{PAYMENT_UPI_ID}`\n"
+            f"• **Name:** `{PAYMENT_NAME}`\n\n"
+            "📌 பணம் செலுத்தியவுடன் அதன் ஸ்கிரீன்ஷாட்டை நிர்வாகிக்கு (@admin) அனுப்பவும். உடனே பிளான் செயல்படுத்தப்படும்!"
+        )
+        await q.message.reply_text(text)
     await q.answer()
 
 # ----------------- MAIN BOOTSTRAP -----------------
