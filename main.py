@@ -28,7 +28,6 @@ from pyrogram.errors import (
     ChannelPrivate
 )
 
-# ----------------- CONFIGURATION -----------------
 API_ID_RAW = os.environ.get("API_ID", "").strip()
 DEFAULT_API_ID = int(API_ID_RAW) if API_ID_RAW.isdigit() else 0
 DEFAULT_API_HASH = os.environ.get("API_HASH", "").strip()
@@ -58,7 +57,6 @@ def get_valid_thumb(path):
         return path
     return None
 
-# ----------------- MULTI-LANGUAGE STRINGS -----------------
 LANG = {
     "ta": {
         "welcome": (
@@ -67,11 +65,11 @@ LANG = {
             "━━━━━━━━━━━━━━━━━━\n"
             "🚀 **இந்த பாட் என்ன செய்யும்?**\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            "📩 **Restricted மீடியா பதிவிறக்கம்:**\n"
+            "📩 **Restricted Content Downloader:**\n"
             "எந்தவொரு Telegram பிரைவேட் / பப்ளிக் போஸ்ட் லிங்க்கையும் அனுப்புங்கள், உடனே ஃபைல் கிடைக்கும்!\n\n"
             "📦 **Range Batch பதிவிறக்கம் *(Standard+)*:**\n"
-            "ஒரே நேரத்தில் 1 முதல் 1000 பதிவுகள் வரை ஃபில்டர் (Video/Audio/PDF/Photo) வசதியுடன் பதிவிறக்கலாம்.\n\n"
-            "🌐 **Ultimate குளோனர் *(Ultimate Only)*:**\n"
+            "ஒரே நேரத்தில் 1 முதல் 1000 பதிவுகள் வரை ஃபில்டர் வசதியுடன் பதிவிறக்கலாம்.\n\n"
+            "🌐 **Ultimate Cloner *(Ultimate Only)*:**\n"
             "முழு பிரைவேட் சேனல் கோப்புகளையும் உங்கள் சாட்டிற்கோ அல்லது உங்கள் சேனலுக்கோ வரம்பின்றி மாற்றலாம்!\n"
             "━━━━━━━━━━━━━━━━━━\n"
             "🎯 **Quick Start:**\n"
@@ -88,9 +86,7 @@ LANG = {
         "btn_settings": "⚙️ Settings",
         "btn_lang": "🌐 மொழியை மாற்ற / Language",
         "not_connected": "⚠️ முதலில் `/login` செய்து உங்கள் Telegram கணக்கை இணைக்கவும்.",
-        "limit_reached": "⛔ உங்கள் வரம்பு முடிந்தது. வரம்பற்ற பதிவிறக்கத்திற்கு `/plans` பார்க்கவும்.",
-        "download_done": "✅ **பதிவிறக்கம் நிறைவடைந்தது!**",
-        "batch_done": "✅ **Batch டவுன்லோட் முடிந்தது!**\n📦 மொத்தம்: {total} | ✔️ வெற்றி: {success} | ❌ தோல்வி: {failed}"
+        "limit_reached": "⛔ உங்கள் வரம்பு முடிந்தது. வரம்பற்ற பதிவிறக்கத்திற்கு `/plans` பார்க்கவும்."
     },
     "en": {
         "welcome": (
@@ -120,9 +116,7 @@ LANG = {
         "btn_settings": "⚙️ Settings",
         "btn_lang": "🌐 Change Language",
         "not_connected": "⚠️ Please connect your Telegram account first using `/login`.",
-        "limit_reached": "⛔ Daily limit reached. Check `/plans` for unlimited access.",
-        "download_done": "✅ **Download Completed Successfully!**",
-        "batch_done": "✅ **Batch Complete!**\n📦 Total: {total} | ✔️ Success: {success} | ❌ Failed: {failed}"
+        "limit_reached": "⛔ Daily limit reached. Check `/plans` for unlimited access."
     },
     "hi": {
         "welcome": (
@@ -146,13 +140,10 @@ LANG = {
         "btn_settings": "⚙️ सेटिंग्स",
         "btn_lang": "🌐 भाषा बदलें",
         "not_connected": "⚠️ कृपया पहले `/login` करके अपना टेलीग्राम अकाउंट जोड़ें।",
-        "limit_reached": "⛔ दैनिक सीमा समाप्त। अनलिमिटेड के लिए `/plans` देखें।",
-        "download_done": "✅ **डाउनलोड सफलतापूर्वक पूर्ण हुआ!**",
-        "batch_done": "✅ **बैच डाउनलोड पूर्ण!**\n📦 कुल: {total} | ✔️ सफल: {success} | ❌ विफल: {failed}"
+        "limit_reached": "⛔ दैनिक सीमा समाप्त। अनलिमिटेड के लिए `/plans` देखें।"
     }
 }
 
-# ----------------- THREADED HTTP KEEP-ALIVE (RENDER 24/7) -----------------
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -170,7 +161,6 @@ def run_health_server():
     except Exception as e:
         print(f"[Health Server Warning] {e}")
 
-# ----------------- DATABASE ENGINE -----------------
 async def init_db():
     async with db_lock:
         async with aiosqlite.connect("bot_data.db") as db:
@@ -208,6 +198,7 @@ async def init_db():
                     user_id INTEGER,
                     utr TEXT UNIQUE,
                     plan TEXT,
+                    duration TEXT,
                     status TEXT DEFAULT 'pending',
                     created_at TEXT
                 )
@@ -224,10 +215,6 @@ async def init_db():
                 ("admin_id", str(DEFAULT_ADMIN_ID)),
                 ("upi_id", "sathiyamoorthy8020-2@okhdfcbank"),
                 ("upi_name", "Sathiya Moorthy (Indian Overseas Bank)"),
-                ("price_basic", "30/wk | 100/mo | 840/yr"),
-                ("price_standard", "50/wk | 180/mo | 1500/yr"),
-                ("price_premium", "80/wk | 280/mo | 2350/yr"),
-                ("price_ultimate", "130/wk | 500/mo | 4200/yr"),
                 ("updates_channel", "https://t.me/telegram"),
                 ("support_username", "admin")
             ]
@@ -306,7 +293,7 @@ async def daily_reset_job():
         async with aiosqlite.connect("bot_data.db") as db:
             await db.execute("UPDATE users SET daily_used = 0")
             await db.commit()
-    print("[RESET] 12:00 AM IST Daily usage reset completed.")
+    print("[RESET] Daily usage reset completed at 12:00 AM IST.")
 
 async def queue_worker():
     while True:
@@ -319,7 +306,6 @@ async def queue_worker():
         finally:
             task_queue.task_done()
 
-# ----------------- ADVANCED PEER RESOLVER -----------------
 async def resolve_target_peer(client: Client, chat_id):
     try:
         return await client.get_chat(chat_id)
@@ -333,7 +319,6 @@ async def resolve_target_peer(client: Client, chat_id):
         pass
     return None
 
-# ----------------- PROGRESS BAR CALLBACK -----------------
 async def progress_tracker(current, total, status_msg, action_name, last_update_time):
     now = time.time()
     if now - last_update_time[0] > 2.5 or current == total:
@@ -353,7 +338,6 @@ async def progress_tracker(current, total, status_msg, action_name, last_update_
         except Exception:
             pass
 
-# ----------------- START COMMAND -----------------
 @bot.on_message(filters.command("start") & filters.private)
 async def start_handler(client: Client, msg: Message):
     user_id = msg.from_user.id
@@ -397,7 +381,6 @@ async def start_handler(client: Client, msg: Message):
 
     await msg.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
-# ----------------- SETTINGS DASHBOARD -----------------
 @bot.on_message(filters.command("settings") & filters.private)
 async def settings_cmd(_, msg: Message):
     user = await get_user(msg.from_user.id)
@@ -416,7 +399,6 @@ async def settings_cmd(_, msg: Message):
     ])
     await msg.reply_text(text, reply_markup=buttons)
 
-# ----------------- PROMO CODE REDEEM -----------------
 @bot.on_message(filters.command("redeem") & filters.private)
 async def redeem_cmd(_, msg: Message):
     args = msg.text.split()
@@ -439,34 +421,34 @@ async def redeem_cmd(_, msg: Message):
     await update_user(msg.from_user.id, plan=plan_name, daily_limit=limits.get(plan_name, 50))
     await msg.reply_text(f"🎉 **புரோமோ கோட் வெற்றிகரமாகப் பயன்படுத்தப்பட்டது!**\nஉங்களுக்கு `{plan_name}` திட்டம் வழங்கப்பட்டுள்ளது.")
 
-# ----------------- PLANS & PRICING WITH DURATION SELECTOR -----------------
+PLAN_PRICING = {
+    "Basic": {"Weekly": 30, "Monthly": 100, "Yearly": 840, "access": "10 links/day"},
+    "Standard": {"Weekly": 50, "Monthly": 180, "Yearly": 1500, "access": "50 links/day + /batch"},
+    "Premium": {"Weekly": 80, "Monthly": 280, "Yearly": 2350, "access": "100 links/day + /batch"},
+    "Ultimate": {"Weekly": 130, "Monthly": 500, "Yearly": 4200, "access": "Unlimited ∞ + /batch + Full Clone"}
+}
+
 @bot.on_message(filters.command("plans") & filters.private)
 async def plans_handler(_, msg: Message):
-    p_bsc = await get_setting("price_basic")
-    p_std = await get_setting("price_standard")
-    p_prm = await get_setting("price_premium")
-    p_ult = await get_setting("price_ultimate")
-
     text = (
         "💎 **SAVE RESTRICTED BOT PLANS & PRICING** 💎\n\n"
-        f"⚡ **Basic — 10 links/day**\n• {p_bsc}\n\n"
-        f"🥈 **Standard — 50 links/day + /batch**\n• {p_std}\n\n"
-        f"🥇 **Premium — 100 links/day + /batch**\n• {p_prm}\n\n"
-        f"🔷 **Ultimate — Unlimited ∞ + /batch + Full Clone**\n• {p_ult}\n\n"
+        "⚡ **Basic — 10 links/day**\n• Weekly ₹30 | Monthly ₹100 | Yearly ₹840\n\n"
+        "🥈 **Standard — 50 links/day + /batch**\n• Weekly ₹50 | Monthly ₹180 | Yearly ₹1500\n\n"
+        "🥇 **Premium — 100 links/day + /batch**\n• Weekly ₹80 | Monthly ₹280 | Yearly ₹2350\n\n"
+        "🔷 **Ultimate — Unlimited ∞ + /batch + Full Clone**\n• Weekly ₹130 | Monthly ₹500 | Yearly ₹4200\n\n"
         "━━━━━━━━━━━━━━━━━━\n"
         "✅ Dynamic QR Auto-Payment\n"
-        "✅ Instant Verification within 5 min\n\n"
-        "👇 **திட்டத்தைத் தேர்வு செய்யவும்:**"
+        "✅ Activate within 5 min\n\n"
+        "👇 **Select your plan:**"
     )
     buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚡ Basic", callback_data="buy_plan_Basic")],
-        [InlineKeyboardButton("🥈 Standard", callback_data="buy_plan_Standard")],
-        [InlineKeyboardButton("🥇 Premium", callback_data="buy_plan_Premium")],
-        [InlineKeyboardButton("🔷 Ultimate", callback_data="buy_plan_Ultimate")]
+        [InlineKeyboardButton("⚡ Basic", callback_data="sel_plan_Basic")],
+        [InlineKeyboardButton("🥈 Standard", callback_data="sel_plan_Standard")],
+        [InlineKeyboardButton("🥇 Premium", callback_data="sel_plan_Premium")],
+        [InlineKeyboardButton("🔷 Ultimate", callback_data="sel_plan_Ultimate")]
     ])
     await msg.reply_text(text, reply_markup=buttons)
 
-# ----------------- TWO-WAY BATCH & CLONE ENGINE -----------------
 @bot.on_message(filters.command("batch") & filters.private)
 async def batch_cmd(client: Client, msg: Message):
     admin_id = await get_admin_id()
@@ -513,7 +495,6 @@ async def clone_cmd(client: Client, msg: Message):
     text = msg.text.strip()
     links = re.findall(r"https?://t\.me/(?:c/)?\S+", text)
 
-    # Single link: clone episode chain directly to user chat
     if len(links) == 1:
         m = re.search(r"t\.me/(?:c/)?([a-zA-Z0-9_]+)/(\d+)", links[0])
         if m:
@@ -546,8 +527,6 @@ async def execute_batch_range(bot_client: Client, msg: Message, user: dict, chat
     user_id = user["user_id"]
     chat_id = int(f"-100{chat_raw}") if str(chat_raw).isdigit() else chat_raw
     filter_type = user.get("file_filter", "all")
-    lang = user.get("lang", "ta")
-    t = LANG.get(lang, LANG["ta"])
 
     api_id = user.get("custom_api_id") or DEFAULT_API_ID
     api_hash = user.get("custom_api_hash") or DEFAULT_API_HASH
@@ -565,7 +544,7 @@ async def execute_batch_range(bot_client: Client, msg: Message, user: dict, chat
     try:
         for cur_id in range(start_id, end_id + 1):
             if not await deduct_usage(user_id):
-                await bot_client.send_message(user_id, t["limit_reached"])
+                await bot_client.send_message(user_id, "⛔ உங்கள் தினசரி வரம்பு முடிந்தது.")
                 break
             try:
                 target = await u_client.get_messages(target_peer_id, cur_id)
@@ -626,7 +605,13 @@ async def execute_batch_range(bot_client: Client, msg: Message, user: dict, chat
                 failed += 1
                 continue
 
-        await status_msg.edit_text(t["batch_done"].format(total=count + failed, success=count, failed=failed))
+        await status_msg.edit_text(
+            f"✅ **Batch Complete!**\n\n"
+            f"📦 Total : {count + failed}\n"
+            f"✔️ Success : {count}\n"
+            f"❌ Failed : {failed}\n\n"
+            "♾️ **Unlimited access - Powered by Pro Saver**"
+        )
     except Exception as e:
         await status_msg.edit_text(f"❌ Error: {str(e)}")
     finally:
@@ -635,7 +620,7 @@ async def execute_batch_range(bot_client: Client, msg: Message, user: dict, chat
 
 async def execute_channel_clone(bot_client: Client, msg: Message, user: dict, src, dest):
     user_id = user["user_id"]
-    status_msg = await bot_client.send_message(user_id, "🚀 **Unlimited Channel Cloning** தொடங்குகிறது...")
+    status_msg = await bot_client.send_message(user_id, "🚀 Channel Cloning தொடங்குகிறது...")
     u_client = Client(f"ub_clone_{user_id}", session_string=user["session"], in_memory=True)
     await u_client.connect()
 
@@ -667,7 +652,7 @@ async def execute_channel_clone(bot_client: Client, msg: Message, user: dict, sr
                     await u_client.send_message(dest, post.text)
                 count += 1
                 if count % 5 == 0:
-                    await status_msg.edit_text(f"🔄 குளோன் செய்யப்படுகிறது... இதுவரை: **{count}** கோப்புகள் முடிந்தது.")
+                    await status_msg.edit_text(f"🔄 Cloned {count} items...")
                 await asyncio.sleep(1.5)
             except FloodWait as fw:
                 await asyncio.sleep(fw.value)
@@ -680,15 +665,11 @@ async def execute_channel_clone(bot_client: Client, msg: Message, user: dict, sr
         if u_client.is_connected:
             await u_client.disconnect()
 
-# ----------------- TEXT, LOGIN & PAYMENTS HANDLER -----------------
 @bot.on_message(filters.text & filters.private)
 async def text_handler(client: Client, msg: Message):
     user_id = msg.from_user.id
     text = msg.text.strip()
     admin_id = await get_admin_id()
-    user = await get_user(user_id)
-    lang = user.get("lang", "ta")
-    t = LANG.get(lang, LANG["ta"])
 
     if text.startswith("/"):
         if text == "/cancel":
@@ -728,6 +709,7 @@ async def text_handler(client: Client, msg: Message):
             end_id = start_id + count - 1
             login_states.pop(user_id, None)
 
+            user = await get_user(user_id)
             await task_queue.put((execute_batch_range, (client, msg, user, chat_raw, start_id, end_id), {}))
             await msg.reply_text(f"⏳ **Batch வரிசையில் சேர்க்கப்பட்டது!** (#{start_id} முதல் #{end_id} வரை).")
             return
@@ -802,7 +784,6 @@ async def text_handler(client: Client, msg: Message):
             await msg.reply_text(f"✅ Setting `{target_key}` மாற்றப்பட்டது:\n`{text}`")
             return
 
-    # Auto 12-Digit UTR Checker
     utr_match = re.search(r"\b\d{12}\b", text)
     if utr_match and "t.me/" not in text:
         utr_num = utr_match.group(0)
@@ -823,10 +804,10 @@ async def text_handler(client: Client, msg: Message):
         await msg.reply_text("✅ உங்கள் UTR எண் பெறப்பட்டது. 5 நிமிடத்தில் பிளான் ஆக்டிவேட் செய்யப்படும்!")
         return
 
-    # Direct Single / Range Link Download
     if "t.me/" in text:
+        user = await get_user(user_id)
         if not user.get("session"):
-            await msg.reply_text(t["not_connected"])
+            await msg.reply_text("⚠️ முதலில் `/login` செய்து உங்கள் Telegram கணக்கை இணைக்கவும்.")
             return
 
         m_range = re.search(r"t\.me/(?:c/)?([a-zA-Z0-9_]+)/(\d+)-(\d+)", text)
@@ -845,121 +826,6 @@ async def text_handler(client: Client, msg: Message):
             await task_queue.put((execute_batch_range, (client, msg, user, chat_raw, cur_id, cur_id), {}))
             await msg.reply_text("⏳ பதிவிறக்கப் பணி வரிசையில் சேர்க்கப்பட்டது...")
 
-# ----------------- ADMIN COMMANDS -----------------
-@bot.on_message(filters.command("admin") & filters.private)
-async def admin_cmd(client: Client, msg: Message):
-    admin_id = await get_admin_id()
-    if msg.from_user.id != admin_id:
-        return
-    btns = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✏️ Change UPI ID", callback_data="adm_set_upi"), InlineKeyboardButton("✏️ Change UPI Name", callback_data="adm_set_name")],
-        [InlineKeyboardButton("💰 Basic விலை", callback_data="adm_set_p_bsc"), InlineKeyboardButton("💰 Standard விலை", callback_data="adm_set_p_std")],
-        [InlineKeyboardButton("💰 Premium விலை", callback_data="adm_set_p_prm"), InlineKeyboardButton("💰 Ultimate விலை", callback_data="adm_set_p_ult")],
-        [InlineKeyboardButton("👑 Admin ID மாற்ற", callback_data="adm_set_admin"), InlineKeyboardButton("📢 Updates Link", callback_data="adm_set_upd")]
-    ])
-    await msg.reply_text("⚙️ **Owner / Admin Settings Dashboard:**\nஎந்த அமைப்பை மாற்ற வேண்டும்?", reply_markup=btns)
-
-@bot.on_message(filters.command("authusers") & filters.private)
-async def authusers_cmd(_, msg: Message):
-    admin_id = await get_admin_id()
-    if msg.from_user.id != admin_id:
-        return
-    async with db_lock:
-        async with aiosqlite.connect("bot_data.db") as db:
-            cursor = await db.execute("SELECT user_id, name, plan FROM users WHERE plan != 'Free'")
-            rows = await cursor.fetchall()
-    text = "👑 **Premium Subscribers List:**\n\n"
-    for uid, name, plan in rows:
-        text += f"• `{uid}` | {name} | **{plan}**\n"
-    await msg.reply_text(text or "பிரீமியம் பயனர்கள் யாரும் இல்லை.")
-
-@bot.on_message(filters.command("addpromo") & filters.private)
-async def addpromo_cmd(_, msg: Message):
-    admin_id = await get_admin_id()
-    if msg.from_user.id != admin_id:
-        return
-    args = msg.text.split()
-    if len(args) < 5:
-        await msg.reply_text("பயன்பாடு: `/addpromo <CODE> <Plan> <Days> <Uses>`\nஉதாரணம்: `/addpromo VIP100 Ultimate 30 10`")
-        return
-    code, plan_name, days, uses = args[1].upper(), args[2].capitalize(), int(args[3]), int(args[4])
-    async with db_lock:
-        async with aiosqlite.connect("bot_data.db") as db:
-            await db.execute("INSERT OR REPLACE INTO promo_codes VALUES (?, ?, ?, ?)", (code, plan_name, days, uses))
-            await db.commit()
-    await msg.reply_text(f"✅ புரோமோ கோட் உருவாக்கப்பட்டது: `{code}` ({plan_name} for {days} days, {uses} uses).")
-
-@bot.on_message(filters.command("ap"))
-async def admin_ap(client: Client, msg: Message):
-    admin_id = await get_admin_id()
-    if msg.from_user.id != admin_id:
-        return
-    args = msg.text.split()
-    if len(args) < 3:
-        await msg.reply_text("பயன்பாடு: `/ap <user_id> <Basic|Standard|Premium|Ultimate>`")
-        return
-    t_uid = int(args[1])
-    t_plan = args[2].capitalize()
-    limits = {"Basic": 10, "Standard": 50, "Premium": 100, "Ultimate": 9999999}
-    if t_plan not in limits:
-        await msg.reply_text("தவறான திட்டம்! (Basic, Standard, Premium, Ultimate).")
-        return
-    await update_user(t_uid, plan=t_plan, daily_limit=limits[t_plan])
-    await msg.reply_text(f"✅ User `{t_uid}`-ன் திட்டம் `{t_plan}` ஆக மாற்றப்பட்டது.")
-    try:
-        await bot.send_message(t_uid, f"🎉 உங்கள் திட்டம் மேம்படுத்தப்பட்டது: **{t_plan}**!")
-    except Exception:
-        pass
-
-@bot.on_message(filters.command("rp"))
-async def admin_rp(client: Client, msg: Message):
-    admin_id = await get_admin_id()
-    if msg.from_user.id != admin_id:
-        return
-    args = msg.text.split()
-    if len(args) < 2:
-        await msg.reply_text("பயன்பாடு: `/rp <user_id>`")
-        return
-    t_uid = int(args[1])
-    await update_user(t_uid, plan="Free", daily_limit=2, daily_used=0)
-    await msg.reply_text(f"🔄 User `{t_uid}` இலவச நிலைக்கு ரீசெட் செய்யப்பட்டார்.")
-
-@bot.on_message(filters.command("stats"))
-async def admin_stats(client: Client, msg: Message):
-    admin_id = await get_admin_id()
-    if msg.from_user.id != admin_id:
-        return
-    async with db_lock:
-        async with aiosqlite.connect("bot_data.db") as db:
-            c1 = await db.execute("SELECT COUNT(*) FROM users")
-            total = (await c1.fetchone())[0]
-            c2 = await db.execute("SELECT COUNT(*) FROM users WHERE plan != 'Free'")
-            prem = (await c2.fetchone())[0]
-    await msg.reply_text(f"📊 **Bot Stats:**\nமொத்த பயனர்கள்: `{total}`\nVIP பயனர்கள்: `{prem}`\nவரிசை பணிகள்: `{task_queue.qsize()}`")
-
-@bot.on_message(filters.command("broadcast"))
-async def admin_broadcast(client: Client, msg: Message):
-    admin_id = await get_admin_id()
-    if msg.from_user.id != admin_id:
-        return
-    if not msg.reply_to_message:
-        await msg.reply_text("செய்திக்கு ரிப்ளை செய்து `/broadcast` அனுப்பவும்.")
-        return
-    async with db_lock:
-        async with aiosqlite.connect("bot_data.db") as db:
-            c = await db.execute("SELECT user_id FROM users")
-            rows = await c.fetchall()
-    sent = 0
-    for (uid,) in rows:
-        try:
-            await msg.reply_to_message.copy(uid)
-            sent += 1
-            await asyncio.sleep(0.05)
-        except Exception:
-            pass
-    await msg.reply_text(f"✅ பிராட்காஸ்ட் நிறைவடைந்தது: {sent} பயனர்கள்.")
-
-# ----------------- CALLBACK BUTTONS ROUTER -----------------
 @bot.on_callback_query()
 async def cb_handler(client: Client, q: CallbackQuery):
     data = q.data
@@ -980,7 +846,9 @@ async def cb_handler(client: Client, q: CallbackQuery):
     elif data == "btn_plans":
         await plans_handler(client, q.message)
     elif data == "btn_myplan":
-        await myplan_handler(client, q.message)
+        user = await get_user(user_id)
+        limit = "Unlimited" if user["plan"] == "Ultimate" or user_id == admin_id else str(user["daily_limit"])
+        await q.message.reply_text(f"📊 **User Plan:** {user['plan']}\n⚡ Daily: {user['daily_used']}/{limit}\n🎁 Bonus: {user['bonus_credits']}")
     elif data == "btn_trial":
         user = await get_user(user_id)
         if user["plan"] != "Free" and user_id != admin_id:
@@ -1006,77 +874,76 @@ async def cb_handler(client: Client, q: CallbackQuery):
             [InlineKeyboardButton("தமிழ் 🇮🇳", callback_data="set_ta"), InlineKeyboardButton("English 🌐", callback_data="set_en")],
             [InlineKeyboardButton("हिन्दी 🇮🇳", callback_data="set_hi")]
         ])
-        await q.message.reply_text("மொழியைத் தேர்ந்தெடுக்கவும் / Select Language:", reply_markup=btn)
+        await q.message.reply_text("Select Language:", reply_markup=btn)
     elif data.startswith("set_"):
         chosen_lang = data.replace("set_", "")
         await update_user(user_id, lang=chosen_lang)
         await q.answer("Language Updated!")
         await start_handler(client, q.message)
 
-    # DYNAMIC QR CODE & PHOTO INVOICE CARD
-    elif data.startswith("buy_plan_"):
-        plan_name = data.replace("buy_plan_", "")
-        prices = {
-            "Basic": ("30", "10 links/day"),
-            "Standard": ("50", "50 links/day + /batch"),
-            "Premium": ("80", "100 links/day + /batch"),
-            "Ultimate": ("130", "Unlimited ∞ + Full Clone")
-        }
-        raw_price, access = prices.get(plan_name, ("50", "All access"))
+    elif data.startswith("sel_plan_"):
+        plan_name = data.replace("sel_plan_", "")
+        p_info = PLAN_PRICING.get(plan_name, PLAN_PRICING["Standard"])
+        text = (
+            f"⚡ **{plan_name}**\n"
+            f"📦 Access: {p_info['access']}\n\n"
+            f"🔹 Weekly → ₹{p_info['Weekly']}\n"
+            f"📅 Monthly → ₹{p_info['Monthly']}\n"
+            f"🔥 Yearly → ₹{p_info['Yearly']} *(30% off!)*\n\n"
+            "👇 **Choose duration:**"
+        )
+        btns = InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"🔹 Weekly — ₹{p_info['Weekly']}", callback_data=f"buy_{plan_name}_Weekly_{p_info['Weekly']}")],
+            [InlineKeyboardButton(f"📅 Monthly — ₹{p_info['Monthly']}", callback_data=f"buy_{plan_name}_Monthly_{p_info['Monthly']}")],
+            [InlineKeyboardButton(f"🔥 Yearly — Save 30%! — ₹{p_info['Yearly']}", callback_data=f"buy_{plan_name}_Yearly_{p_info['Yearly']}")],
+            [InlineKeyboardButton("⬅️ Back", callback_data="btn_plans")]
+        ])
+        await q.message.edit_text(text, reply_markup=btns)
+
+    elif data.startswith("buy_"):
+        parts = data.split("_")
+        plan_name = parts[1]
+        duration = parts[2]
+        price = parts[3]
         upi_id = await get_setting("upi_id")
         upi_name = await get_setting("upi_name")
 
-        # Dynamic QR generator API URL
-        upi_payload = f"upi://pay?pa={upi_id}&pn={quote(upi_name)}&am={raw_price}&cu=INR"
+        upi_payload = f"upi://pay?pa={upi_id}&pn={quote(upi_name)}&am={price}&cu=INR"
         qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={quote(upi_payload)}"
 
         caption = (
-            "💳 **PAYMENT DETAILS & QR INVOICE** 💳\n\n"
-            f"🏷️ **Plan:** ⚡ {plan_name}\n"
-            f"📦 **Access:** {access}\n"
-            f"⏱️ **Duration:** Weekly (or Monthly ₹{int(raw_price)*3.5:.0f})\n"
-            f"💰 **Amount:** ₹{raw_price}\n\n"
+            "💳 **PAYMENT DETAILS** 💳\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            "📋 **4 Easy Steps:**\n"
-            f"1️⃣ மேலே உள்ள QR-ஐ ஸ்கேன் செய்து ₹{raw_price} செலுத்தவும்[span_7](start_span)[span_7](end_span)[span_8](start_span)[span_8](end_span).\n"
+            f"🏷️ **Plan :** ⚡ {plan_name}\n"
+            f"📦 **Access :** {PLAN_PRICING[plan_name]['access']}\n"
+            f"⏱️ **Duration :** 🔹 {duration}\n"
+            f"💰 **Price :** ₹{price}\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "📋 **4 Easy Steps:**\n\n"
+            "1️⃣ Scan the QR code above\n"
+            f"2️⃣ Pay ₹{price} via UPI\n"
+            "3️⃣ Payment screenshot எடுக்கவும்\n"
+            "4️⃣ இந்த சாட்டில் **12-இலக்க UTR எண்ணை** அனுப்பவும்!\n\n"
             f"• **UPI ID:** `{upi_id}`\n"
-            "2️⃣ Payment செய்த Screenshot எடுக்கவும்.\n"
-            f"3️⃣ இந்த சாட்டில் **12-இலக்க UTR எண்ணை** டைப் செய்து அனுப்பவும்.\n"
-            "4️⃣ 5 நிமிடத்தில் தானாகவே பிளான் Active ஆகிவிடும்!\n\n"
-            "⚡ **Powered by Save Restricted Ultra Engine**"
+            "⏱️ **Activation:** 5 min உள்ளாக தானாக verify செய்யப்படும்!"
         )
         try:
             await q.message.reply_photo(photo=qr_url, caption=caption)
         except Exception:
             await q.message.reply_text(caption)
 
-    # Admin Settings
     elif data == "admin_panel" and user_id == admin_id:
         btns = InlineKeyboardMarkup([
             [InlineKeyboardButton("✏️ Change UPI ID", callback_data="adm_set_upi"), InlineKeyboardButton("✏️ Change UPI Name", callback_data="adm_set_name")],
-            [InlineKeyboardButton("💰 Basic விலை", callback_data="adm_set_p_bsc"), InlineKeyboardButton("💰 Standard விலை", callback_data="adm_set_p_std")],
-            [InlineKeyboardButton("💰 Premium விலை", callback_data="adm_set_p_prm"), InlineKeyboardButton("💰 Ultimate விலை", callback_data="adm_set_p_ult")],
             [InlineKeyboardButton("👑 Admin ID மாற்ற", callback_data="adm_set_admin")]
         ])
-        await q.message.reply_text("⚙️ **Owner / Admin Settings Dashboard:**", reply_markup=btns)
+        await q.message.reply_text("⚙️ **Admin Dashboard:**", reply_markup=btns)
     elif data == "adm_set_upi" and user_id == admin_id:
         login_states[user_id] = {"step": "SET_UPI_ID"}
         await q.message.reply_text("புதிய **UPI ID**-ஐ அனுப்பவும்:")
     elif data == "adm_set_name" and user_id == admin_id:
         login_states[user_id] = {"step": "SET_UPI_NAME"}
         await q.message.reply_text("புதிய **UPI Name**-ஐ அனுப்பவும்:")
-    elif data == "adm_set_p_bsc" and user_id == admin_id:
-        login_states[user_id] = {"step": "SET_PRICE_BASIC"}
-        await q.message.reply_text("Basic திட்டத்தின் புதிய விலையை அனுப்பவும்:")
-    elif data == "adm_set_p_std" and user_id == admin_id:
-        login_states[user_id] = {"step": "SET_PRICE_STANDARD"}
-        await q.message.reply_text("Standard திட்டத்தின் புதிய விலையை அனுப்பவும்:")
-    elif data == "adm_set_p_prm" and user_id == admin_id:
-        login_states[user_id] = {"step": "SET_PRICE_PREMIUM"}
-        await q.message.reply_text("Premium திட்டத்தின் புதிய விலையை அனுப்பவும்:")
-    elif data == "adm_set_p_ult" and user_id == admin_id:
-        login_states[user_id] = {"step": "SET_PRICE_ULTIMATE"}
-        await q.message.reply_text("Ultimate திட்டத்தின் புதிய விலையை அனுப்பவும் (எ.கா: `130/wk | 500/mo | 4200/yr`):")
     elif data == "adm_set_admin" and user_id == admin_id:
         login_states[user_id] = {"step": "SET_ADMIN_ID"}
         await q.message.reply_text("புதிய **Admin Telegram User ID**-ஐ அனுப்பவும்:")
@@ -1099,7 +966,6 @@ async def cb_handler(client: Client, q: CallbackQuery):
 
     await q.answer()
 
-# ----------------- MAIN BOOTSTRAP -----------------
 async def start_services():
     await init_db()
     asyncio.create_task(queue_worker())
@@ -1112,7 +978,7 @@ async def start_services():
 
     try:
         commands = [
-            BotCommand("start", "Home & Quick Start"),
+            BotCommand("start", "Home & Status"),
             BotCommand("login", "Connect Telegram Account"),
             BotCommand("batch", "Range Batch Download"),
             BotCommand("clone", "Full Channel / Chat Clone"),
@@ -1121,7 +987,6 @@ async def start_services():
             BotCommand("plans", "VIP Plans & Pricing"),
             BotCommand("myplan", "My Plan & Limits"),
             BotCommand("trial", "Free Trial (24hr)"),
-            BotCommand("admin", "Admin Control Panel"),
             BotCommand("cancel", "Cancel Ongoing Task")
         ]
         await bot.set_bot_commands(commands)
